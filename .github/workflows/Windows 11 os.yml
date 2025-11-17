@@ -62,8 +62,8 @@ jobs:
       max-parallel: 10
     timeout-minutes: 370
     env:
-      RDP_USER: Tnayem48
-      RDP_PASS: 123456
+      RDP_USER: Bullettemporary
+      RDP_PASS: Bullet@12345
 
     steps:
       - name: Set CRD flag early (safe read)
