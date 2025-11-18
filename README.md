@@ -23,9 +23,10 @@
 এই 워크플로우 ব্যবহার করার জন্য আপনার কিছু জিনিস আগে থেকে প্রস্তুত রাখতে হবে।
 
 1.  **Tailscale অ্যাকাউন্ট:** আপনার একটি বিনামূল্যে [Tailscale অ্যাকাউন্ট](https://login.tailscale.com/start) থাকতে হবে।
-2.  **Tailscale API Key:** 워크플로우টিকে আপনার tailnet-এর ডিভাইসগুলো ম্যানেজ করার অনুমতি দেওয়ার জন্য।
+2.  ** মোবাইল অ্যাপ ডাউনলোড করে সেই একাউন্ট দিয়ে লগইন করে কানেক্ট করতে হবে ।
+3.  **Tailscale API Key:** 워크플로우টিকে আপনার tailnet-এর ডিভাইসগুলো ম্যানেজ করার অনুমতি দেওয়ার জন্য।
     *   **কিভাবে পাবেন:** Tailscale Admin Console-এ যান, তারপর **Settings > Keys > Generate API key...** তে ক্লিক করুন। `Admin` পারমিশনসহ একটি কী তৈরি করুন।
-3.  **Tailscale Auth Key:** GitHub Actions রানারকে আপনার tailnet-এ প্রমাণীকরণ (authenticate) করার জন্য।
+4.  **Tailscale Auth Key:** GitHub Actions রানারকে আপনার tailnet-এ প্রমাণীকরণ (authenticate) করার জন্য।
     *   **কিভাবে পাবেন:** Admin Console-এ যান, তারপর **Settings > Keys > Generate auth key...** তে ক্লিক করুন। কী-টি `Reusable` এবং `Ephemeral` হলে ভালো হয়।
 
 ---
