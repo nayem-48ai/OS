@@ -1,44 +1,105 @@
-- name: Setup SSH Server and User
-        run: |
-          USER="${{ inputs.ssh_user }}"
-          PASS="${{ inputs.ssh_password }}"
-          sudo apt-get update
-          sudo apt-get install -y openssh-server
-          sudo useradd -m -s /bin/bash "$USER"
-          echo "$USER:$PASS" | sudo chpasswd
-          sudo usermod -aG sudo "$USER"
-          sudo sed -i 's/^#*PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config
-          sudo service ssh restart
-          echo "✅ SSH server is ready."
+name: Cloud Desktop on Demand
 
-      - name: Expose SSH using ngrok
+on:
+  workflow_dispatch:
+    inputs:
+      operating_system:
+        description: 'Select Operating System'
+        required: true
+        type: choice
+        options:
+        - windows
+        - ubuntu
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Setup Dependencies
         run: |
-          # ngrok ডাউনলোড এবং ইনস্টল
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 bridge-utils virt-manager libvirt-daemon-system unzip
+          
+      - name: Install and Authenticate ngrok
+        run: |
           curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
           echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
           sudo apt update
           sudo apt install ngrok
-
-          # আপনার ngrok authtoken সেট করুন (এটি GitHub Secrets থেকে নেওয়া উচিত)
           ngrok config add-authtoken ${{ secrets.NGROK_AUTHTOKEN }}
-
-          # ব্যাকগ্রাউন্ডে ngrok টানেল চালু করুন
-          nohup ngrok tcp 22 &
-
-          # পাবলিক অ্যাড্রেস পাওয়ার জন্য কয়েক সেকেন্ড অপেক্ষা করুন
-          sleep 10
           
-          # ngrok API থেকে পাবলিক URL বের করুন এবং প্রিন্ট করুন
-          PUBLIC_URL=$(curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url')
-          
-          echo "✅ ngrok tunnel is up!"
-          echo "Connect with:"
-          echo "ssh ${{ inputs.ssh_user }}@${PUBLIC_URL/tcp:\/\//}" # "tcp://" অংশটুকু সরিয়ে ফেলা হলো
-          echo "Password: ${{ inputs.ssh_password }}"
-          echo "Full command: sshpass -p '${{ inputs.ssh_password }}' ssh -p ${PUBLIC_URL##*:} ${{ inputs.ssh_user }}@${PUBLIC_URL//:*
-/}"
-
-      - name: Keep alive
-        # এই ধাপটি আগের মতোই থাকবে
+      - name: Run Windows RDP Session
+        if: ${{ github.event.inputs.operating_system == 'windows' }}
         run: |
-          # ... আগের মতোই ...
+          echo "Starting Windows VM..."
+          # একটি প্রি-মেড Windows qcow2 ইমেজ ডাউনলোড করা হচ্ছে
+          # দ্রষ্টব্য: নির্ভরযোগ্য উৎস থেকে ইমেজ ব্যবহার করুন
+          wget -q -O win.qcow2 "URL_TO_A_WINDOWS_QCOW2_IMAGE"
+          
+          # ngrok টানেল ব্যাকগ্রাউন্ডে শুরু করা
+          nohup ngrok tcp 3389 &
+          sleep 5
+          
+          # QEMU দিয়ে উইন্ডোজ ভার্চুয়াল মেশিন চালানো
+          sudo qemu-system-x86_64 \
+            -m 8G -smp 4 \
+            -hda win.qcow2 \
+            -device virtio-net-pci,netdev=net0 \
+            -netdev user,id=net0,hostfwd=tcp::3389-:3389 \
+            -vnc :0 \
+            -daemonize
+            
+          echo "Windows VM is running in the background."
+          
+      - name: Run Ubuntu Desktop (VNC) Session
+        if: ${{ github.event.inputs.operating_system == 'ubuntu' }}
+        run: |
+          echo "Starting Ubuntu Desktop VM..."
+          # একটি প্রি-মেড Ubuntu Desktop qcow2 ইমেজ ডাউনলোড করা হচ্ছে
+          wget -q -O ubuntu.qcow2 "URL_TO_AN_UBUNTU_DESKTOP_QCOW2_IMAGE"
+          
+          # ngrok টানেল VNC পোর্টের জন্য (5901)
+          nohup ngrok tcp 5901 &
+          sleep 5
+          
+          # QEMU দিয়ে উবুন্টু ভার্চুয়াল মেশিন চালানো
+          sudo qemu-system-x86_64 \
+            -m 8G -smp 4 \
+            -hda ubuntu.qcow2 \
+            -device virtio-net-pci,netdev=net0 \
+            -netdev user,id=net0,hostfwd=tcp::5901-:5901 \
+            -vnc :1 \
+            -daemonize
+            
+          echo "Ubuntu VM is running in the background."
+
+      - name: Display Connection Details
+        run: |
+          sleep 10 # ngrok URL তৈরি হওয়ার জন্য অপেক্ষা
+          NGROK_URL=$(curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url')
+          if [ -z "$NGROK_URL" ]; then
+            echo "::error::Could not fetch ngrok URL. Check logs."
+            exit 1
+          fi
+          
+          echo "✅ Your Cloud Desktop is Ready!"
+          echo "-----------------------------------"
+          if [[ "${{ github.event.inputs.operating_system }}" == "windows" ]]; then
+            echo "OS: Windows (RDP)"
+            echo "Address: ${NGROK_URL/tcp:\/\//}"
+            echo "User: Administrator (or other)"
+            echo "Password: ${{ secrets.RDP_PASSWORD }}"
+          else
+            echo "OS: Ubuntu (VNC)"
+            echo "Address: ${NGROK_URL/tcp:\/\//}"
+            echo "Password: ${{ secrets.RDP_PASSWORD }} (if configured in image)"
+          fi
+          echo "-----------------------------------"
+          echo "Session will remain active for the job duration (up to 6 hours)."
+          
+      - name: Keep Alive
+        run: |
+          sleep 21000 # প্রায় ৫ ঘন্টা ৫০ মিনিট সেশন চালু রাখবে
