@@ -8,8 +8,15 @@ on:
         required: true
         type: choice
         options:
-        - windows
         - ubuntu
+        - windows
+      username:
+        description: 'Enter your desired username'
+        required: true
+        default: 'Tnayem48'
+      password:
+        description: 'Enter a strong password for the user'
+        required: true
 
 jobs:
   build:
@@ -21,7 +28,7 @@ jobs:
       - name: Setup Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 bridge-utils virt-manager libvirt-daemon-system unzip jq
+          sudo apt-get install -y qemu-system-x86 bridge-utils virt-manager libvirt-daemon-system unzip jq cloud-image-utils
           
       - name: Install and Authenticate ngrok
         run: |
@@ -35,14 +42,11 @@ jobs:
         if: ${{ github.event.inputs.operating_system == 'windows' }}
         run: |
           echo "Starting Windows VM..."
-          # একটি প্রি-মেড Windows 11 qcow2 ইমেজ ডাউনলোড করা হচ্ছে (প্রায় 14GB)
-          # Source: https://github.com/dockur/windows
           wget --progress=bar:force:noscroll -O windows.qcow2.zip "https://github.com/dockur/windows/releases/download/v1.0.0/windows-11.qcow2.zip"
           unzip -o windows.qcow2.zip
           
           echo "Starting ngrok tunnel for RDP port 3389..."
           nohup ngrok tcp 3389 &
-          sleep 5
           
           echo "Starting QEMU VM with Windows..."
           sudo qemu-system-x86_64 \
@@ -59,21 +63,33 @@ jobs:
         if: ${{ github.event.inputs.operating_system == 'ubuntu' }}
         run: |
           echo "Starting Ubuntu Desktop VM..."
-          echo "Downloading Ubuntu 22.04 image..."
           wget --progress=bar:force:noscroll -O ubuntu.box https://app.vagrantup.com/generic/boxes/ubuntu2204/versions/4.3.12/providers/qemu.box
-          
-          echo "Extracting the disk image..."
           tar -xvf ubuntu.box
           mv box.img ubuntu.qcow2
-          
+
+          # Create cloud-init user data
+          cat <<EOF > user-data
+          #cloud-config
+          password: ${{ inputs.password }}
+          chpasswd: { expire: False }
+          users:
+            - name: ${{ inputs.username }}
+              sudo: ALL=(ALL) NOPASSWD:ALL
+              shell: /bin/bash
+              ssh_authorized_keys: []
+          EOF
+
+          # Create a cloud-init iso file
+          cloud-localds cloud-init.iso user-data
+
           echo "Starting ngrok tunnel for VNC port 5901..."
           nohup ngrok tcp 5901 &
-          sleep 5
           
-          echo "Starting QEMU VM with Ubuntu Desktop..."
+          echo "Starting QEMU VM with Ubuntu Desktop and custom user..."
           sudo qemu-system-x86_64 \
             -m 8G -smp 4 \
             -hda ubuntu.qcow2 \
+            -cdrom cloud-init.iso \
             -device virtio-net-pci,netdev=net0 \
             -netdev user,id=net0,hostfwd=tcp::5901-:5901 \
             -vnc :1 \
@@ -83,10 +99,21 @@ jobs:
 
       - name: Display Connection Details
         run: |
-          sleep 15
-          NGROK_URL=$(curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url')
-          if [ -z "$NGROK_URL" ]; then
-            echo "::error::Could not fetch ngrok URL. Check ngrok logs or status."
+          echo "Waiting for ngrok tunnel to be ready..."
+          ATTEMPTS=0
+          MAX_ATTEMPTS=12
+          while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
+            NGROK_URL=$(curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url')
+            if [ -n "$NGROK_URL" ] && [ "$NGROK_URL" != "null" ]; then
+              echo "ngrok tunnel is ready: $NGROK_URL"
+              break
+            fi
+            sleep 10
+            ATTEMPTS=$((ATTEMPTS + 1))
+          done
+
+          if [ -z "$NGROK_URL" ] || [ "$NGROK_URL" == "null" ]; then
+            echo "::error::Could not fetch ngrok URL after 2 minutes. Aborting."
             exit 1
           fi
           
@@ -97,13 +124,14 @@ jobs:
           if [[ "${{ github.event.inputs.operating_system }}" == "windows" ]]; then
             echo "OS: Windows (RDP)"
             echo "Address: $CONNECTION_ADDRESS"
-            echo "User: Administrator"
-            echo "Password: ${{ secrets.RDP_PASSWORD }}"
+            echo "User: docker (Default for this image)"
+            echo "Password: docker (Default for this image)"
+            echo "NOTE: We recommend changing the password after your first login."
           else
             echo "OS: Ubuntu (VNC)"
             echo "Address: $CONNECTION_ADDRESS"
-            echo "User: vagrant"
-            echo "Password: vagrant (সাধারণত এটি ডিফল্ট থাকে)"
+            echo "User: ${{ inputs.username }}"
+            echo "Password: ${{ inputs.password }}"
           fi
           echo "-----------------------------------"
           echo "Session will remain active for the job duration (up to 6 hours)."
