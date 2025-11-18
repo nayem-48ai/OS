@@ -1,0 +1,195 @@
+name: SSH + Tailscale with Funnel
+
+on:
+  workflow_dispatch:
+    inputs:
+      ts_tailnet:         { description: "Tailscale tailnet (e.g. you@gmail.com)", required: true }
+      ts_api_key:         { description: "Tailscale API key (device admin, no Bearer)", required: true }
+      ts_authkey:         { description: "Tailscale Auth key (reusable or ephemeral)", required: true }
+      ssh_user:           { description: "Username for SSH connection", required: true, default: "ubuntu" }
+      ssh_password:       { description: "Password for the SSH user", required: true }
+      quick_test:         { description: "Run 5-minute test", type: boolean, default: false }
+      runtime_minutes:    { description: "Runtime (max 360; default 355 when not test)", required: false, default: "355" }
+      do_purge:           { description: "Purge bullet* devices at start (single instance only)", required: false, default: "true" }
+      cycles:             { description: "0=stop after this run; N=handoffs left incl this run", required: false, default: "0" }
+      instance_count:     { description: "How many SSH instances (1-10)", required: false, default: "1" }
+
+permissions:
+  contents: read
+  actions: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.mk.outputs.matrix }}
+      multi:  ${{ steps.mk.outputs.multi }}
+    steps:
+      - id: mk
+        run: |
+          n=${{ inputs.instance_count }}
+          if (( n < 1 )); then n=1; fi
+          if (( n > 10 )); then n=10; fi
+
+          matrix="{\"include\":["
+          for i in $(seq 1 $n); do
+            matrix+="{\"id\":$i}"
+            if (( i < n )); then matrix+=","; fi
+          done
+          matrix+="]}"
+          echo "matrix=$matrix" >> $GITHUB_OUTPUT
+
+          multi=0
+          if (( n > 1 )); then multi=1; fi
+          echo "multi=$multi" >> $GITHUB_OUTPUT
+
+  ssh_job:
+    needs: setup
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
+      max-parallel: 10
+    timeout-minutes: 370
+
+    steps:
+      - name: Decide hostname + runtime
+        run: |
+          if [[ "${{ inputs.instance_count }}" -gt 1 ]]; then
+            hn="bullet${{ matrix.id }}"
+          else
+            hn="bullet"
+          fi
+          echo "TS_HOSTNAME=$hn" >> $GITHUB_ENV
+
+          runtime=${{ inputs.runtime_minutes }}
+          if [[ "${{ inputs.quick_test }}" == "true" ]]; then
+            runtime=5
+          elif [[ "${{ inputs.quick_test }}" != "true" && "$runtime" -lt 6 ]]; then
+            runtime=355
+          elif [[ "$runtime" -gt 360 ]]; then
+            runtime=355
+          fi
+          echo "RUNTIME_MINUTES=$runtime" >> $GITHUB_ENV
+          echo "Hostname: $hn  | Runtime: $runtime minutes"
+
+      - name: Purge bullet* devices (single-instance only)
+        if: ${{ needs.setup.outputs.multi == '0' && inputs.do_purge == 'true' }}
+        run: |
+          echo "Purging old 'bullet*' devices..."
+          # URL-encode the tailnet
+          TN_ESCAPED=$(jq -nr --arg tn "${{ inputs.ts_tailnet }}" '$tn|@uri')
+          DEVICES_URL="https://api.tailscale.com/api/v2/tailnet/$TN_ESCAPED/devices"
+          
+          # Use curl's built-in basic auth (-u) and fail on server errors (-f)
+          # The password for the API key is empty, which is why there's a colon at the end.
+          device_list=$(curl -sf -u "${{ inputs.ts_api_key }}:" "$DEVICES_URL")
+          
+          # Check if curl command failed
+          if [ $? -ne 0 ]; then
+            echo "::error::Failed to fetch device list from Tailscale API. Check your API key and tailnet."
+            exit 1
+          fi
+
+          # Filter devices and get their IDs
+          device_ids=$(echo "$device_list" | jq -r '.devices[]? | select(.hostname? | test("^bullet[0-9]*$")) | .id')
+
+          if [[ -z "$device_ids" ]]; then
+            echo "No 'bullet*' devices found to purge."
+          else
+            for id in $device_ids; do
+              echo "Deleting device with ID: $id"
+              # Use the same robust curl command for deleting
+              curl -sf -X DELETE -u "${{ inputs.ts_api_key }}:" "https://api.tailscale.com/api/v2/device/$id"
+            done
+            echo "Purge complete."
+          fi
+
+      - name: Install and start Tailscale with Funnel
+        run: |
+          curl -fsSL https://tailscale.com/install.sh | sh
+          sudo tailscale up \
+            --authkey "${{ inputs.ts_authkey }}" \
+            --hostname "$TS_HOSTNAME" \
+            --accept-dns=true \
+            --accept-routes=true \
+            --funnel
+          
+          ip4=$(tailscale ip -4)
+          echo "TAILSCALE_IP=$ip4" >> $GITHUB_ENV
+          echo "Tailscale is up. IPv4: $ip4"
+          echo "Tailscale Funnel is enabled."
+
+      - name: Setup SSH Server and User
+        run: |
+          USER="${{ inputs.ssh_user }}"
+          PASS="${{ inputs.ssh_password }}"
+
+          # Install SSH Server
+          sudo apt-get update
+          sudo apt-get install -y openssh-server
+
+          # Create user and set password
+          sudo useradd -m -s /bin/bash "$USER"
+          echo "$USER:$PASS" | sudo chpasswd
+          sudo usermod -aG sudo "$USER"
+          
+          # Allow password authentication robustly
+          sudo sed -i 's/^#*PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+          sudo service ssh restart
+
+          echo "✅ SSH is ready!"
+          echo "Connect with:"
+          echo "ssh $USER@$TS_HOSTNAME   (or ssh $USER@$TAILSCALE_IP)"
+          echo "Password: $PASS"
+
+      - name: Keep alive
+        run: |
+          end_time=$(( $(date +%s) + ${{ env.RUNTIME_MINUTES }} * 60 ))
+          while [ $(date +%s) -lt $end_time ]; do
+            current_time=$(date +"%H:%M:%S")
+            end_time_str=$(date -d "@$end_time" +"%H:%M:%S")
+            
+            echo "[SSH] Heartbeat at $current_time. Session ends at $end_time_str."
+            echo "Connect: ssh ${{ inputs.ssh_user }}@$TS_HOSTNAME (IP: $TAILSCALE_IP)"
+            sleep 60
+          done
+
+      - name: Dispatch next or stop
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cycles=${{ inputs.cycles }}
+          if (( cycles > 0 )); then
+            next_cycles=$(( cycles - 1 ))
+            
+            # Prepare the inputs for the next job by updating the cycles count
+            NEXT_INPUTS_JSON=$(echo '${{ toJSON(inputs) }}' | jq --arg next_c "$next_cycles" '.cycles = $next_c')
+
+            if (( next_cycles <= 0 )); then
+              echo "Dispatching STOP workflow."
+              URL="https://api.github.com/repos/${{ github.repository }}/actions/workflows/rdp-tailscale-stop.yml/dispatches"
+              # This assumes your stop workflow has these specific inputs
+              PAYLOAD=$(jq -n --arg tn "${{ inputs.ts_tailnet }}" \
+                                --arg api_key "${{ inputs.ts_api_key }}" \
+                                '{ "ts_tailnet": $tn, "ts_api_key": $api_key, "base_prefix": "bullet", "max_count": "10", "dry_run": "false" }')
+            else
+              echo "Dispatching next workflow with cycles=$next_cycles"
+              URL="https://api.github.com/repos/${{ github.repository }}/actions/workflows/${{ github.workflow_ref_name }}"
+              PAYLOAD=$NEXT_INPUTS_JSON
+            fi
+            
+            BODY=$(jq -n --arg ref "${{ github.ref_name }}" --argjson inputs "$PAYLOAD" '{ "ref": $ref, "inputs": $inputs }')
+
+            curl -s -X POST \
+              -H "Accept: application/vnd.github.v3+json" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              "$URL" \
+              -d "$BODY"
+          else
+            echo "No cycles configured. This is the final run."
+          fi
