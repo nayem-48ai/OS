@@ -80,29 +80,19 @@ jobs:
         if: ${{ needs.setup.outputs.multi == '0' && inputs.do_purge == 'true' }}
         run: |
           echo "Purging old 'bullet*' devices..."
-          # URL-encode the tailnet
           TN_ESCAPED=$(jq -nr --arg tn "${{ inputs.ts_tailnet }}" '$tn|@uri')
           DEVICES_URL="https://api.tailscale.com/api/v2/tailnet/$TN_ESCAPED/devices"
-          
-          # Use curl's built-in basic auth (-u) and fail on server errors (-f)
-          # The password for the API key is empty, which is why there's a colon at the end.
           device_list=$(curl -sf -u "${{ inputs.ts_api_key }}:" "$DEVICES_URL")
-          
-          # Check if curl command failed
           if [ $? -ne 0 ]; then
             echo "::error::Failed to fetch device list from Tailscale API. Check your API key and tailnet."
             exit 1
           fi
-
-          # Filter devices and get their IDs
           device_ids=$(echo "$device_list" | jq -r '.devices[]? | select(.hostname? | test("^bullet[0-9]*$")) | .id')
-
           if [[ -z "$device_ids" ]]; then
             echo "No 'bullet*' devices found to purge."
           else
             for id in $device_ids; do
               echo "Deleting device with ID: $id"
-              # Use the same robust curl command for deleting
               curl -sf -X DELETE -u "${{ inputs.ts_api_key }}:" "https://api.tailscale.com/api/v2/device/$id"
             done
             echo "Purge complete."
@@ -110,37 +100,35 @@ jobs:
 
       - name: Install and start Tailscale with Funnel
         run: |
+          # Install Tailscale
           curl -fsSL https://tailscale.com/install.sh | sh
+          
+          # Start Tailscale and connect to the tailnet
           sudo tailscale up \
             --authkey "${{ inputs.ts_authkey }}" \
             --hostname "$TS_HOSTNAME" \
             --accept-dns=true \
-            --accept-routes=true \
-            --funnel
+            --accept-routes=true
+          
+          # Enable the funnel for SSH (port 22) in the background
+          sudo tailscale funnel 22 &
           
           ip4=$(tailscale ip -4)
           echo "TAILSCALE_IP=$ip4" >> $GITHUB_ENV
           echo "Tailscale is up. IPv4: $ip4"
-          echo "Tailscale Funnel is enabled."
+          echo "Tailscale Funnel is enabled for SSH on port 22."
 
       - name: Setup SSH Server and User
         run: |
           USER="${{ inputs.ssh_user }}"
           PASS="${{ inputs.ssh_password }}"
-
-          # Install SSH Server
           sudo apt-get update
           sudo apt-get install -y openssh-server
-
-          # Create user and set password
           sudo useradd -m -s /bin/bash "$USER"
           echo "$USER:$PASS" | sudo chpasswd
           sudo usermod -aG sudo "$USER"
-          
-          # Allow password authentication robustly
           sudo sed -i 's/^#*PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config
           sudo service ssh restart
-
           echo "✅ SSH is ready!"
           echo "Connect with:"
           echo "ssh $USER@$TS_HOSTNAME   (or ssh $USER@$TAILSCALE_IP)"
@@ -152,7 +140,6 @@ jobs:
           while [ $(date +%s) -lt $end_time ]; do
             current_time=$(date +"%H:%M:%S")
             end_time_str=$(date -d "@$end_time" +"%H:%M:%S")
-            
             echo "[SSH] Heartbeat at $current_time. Session ends at $end_time_str."
             echo "Connect: ssh ${{ inputs.ssh_user }}@$TS_HOSTNAME (IP: $TAILSCALE_IP)"
             sleep 60
@@ -166,14 +153,10 @@ jobs:
           cycles=${{ inputs.cycles }}
           if (( cycles > 0 )); then
             next_cycles=$(( cycles - 1 ))
-            
-            # Prepare the inputs for the next job by updating the cycles count
             NEXT_INPUTS_JSON=$(echo '${{ toJSON(inputs) }}' | jq --arg next_c "$next_cycles" '.cycles = $next_c')
-
             if (( next_cycles <= 0 )); then
               echo "Dispatching STOP workflow."
               URL="https://api.github.com/repos/${{ github.repository }}/actions/workflows/rdp-tailscale-stop.yml/dispatches"
-              # This assumes your stop workflow has these specific inputs
               PAYLOAD=$(jq -n --arg tn "${{ inputs.ts_tailnet }}" \
                                 --arg api_key "${{ inputs.ts_api_key }}" \
                                 '{ "ts_tailnet": $tn, "ts_api_key": $api_key, "base_prefix": "bullet", "max_count": "10", "dry_run": "false" }')
@@ -182,9 +165,7 @@ jobs:
               URL="https://api.github.com/repos/${{ github.repository }}/actions/workflows/${{ github.workflow_ref_name }}"
               PAYLOAD=$NEXT_INPUTS_JSON
             fi
-            
             BODY=$(jq -n --arg ref "${{ github.ref_name }}" --argjson inputs "$PAYLOAD" '{ "ref": $ref, "inputs": $inputs }')
-
             curl -s -X POST \
               -H "Accept: application/vnd.github.v3+json" \
               -H "Authorization: Bearer $GH_TOKEN" \
