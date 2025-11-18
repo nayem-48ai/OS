@@ -1,0 +1,253 @@
+name: SSH + Tailscale (Multi-OS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner_os:
+        description: "Choose the OS for the runner"
+        type: choice
+        options:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+        default: ubuntu-latest
+      ts_tailnet:         { description: "Tailscale tailnet (e.g. you@gmail.com)", required: true }
+      ts_api_key:         { description: "Tailscale API key (device admin, no Bearer)", required: true }
+      ts_authkey:         { description: "Tailscale Auth key (reusable or ephemeral)", required: true }
+      ssh_user:           { description: "Username for SSH connection", required: true, default: "runner" }
+      ssh_password:       { description: "Password for the SSH user", required: true }
+      quick_test:         { description: "Run 5-minute test", type: boolean, default: false }
+      runtime_minutes:    { description: "Runtime (max 360; default 355 when not test)", required: false, default: "355" }
+      do_purge:           { description: "Purge bullet* devices at start (single instance only)", required: false, default: "true" }
+      cycles:             { description: "0=stop after this run; N=handoffs left incl this run", required: false, default: "0" }
+      instance_count:     { description: "How many SSH instances (1-10)", required: false, default: "1" }
+
+permissions:
+  contents: read
+  actions: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest # Setup job can remain on ubuntu for simplicity
+    outputs:
+      matrix: ${{ steps.mk.outputs.matrix }}
+      multi:  ${{ steps.mk.outputs.multi }}
+    steps:
+      - id: mk
+        run: |
+          n=${{ inputs.instance_count }}
+          if (( n < 1 )); then n=1; fi
+          if (( n > 10 )); then n=10; fi
+
+          matrix="{\"include\":["
+          for i in $(seq 1 $n); do
+            matrix+="{\"id\":$i, \"os\":\"${{ inputs.runner_os }}\"}"
+            if (( i < n )); then matrix+=","; fi
+          done
+          matrix+="]}"
+          echo "matrix=$matrix" >> $GITHUB_OUTPUT
+
+          multi=0
+          if (( n > 1 )); then multi=1; fi
+          echo "multi=$multi" >> $GITHUB_OUTPUT
+
+  ssh_job:
+    needs: setup
+    runs-on: ${{ matrix.os }} # Use the OS selected by the user
+    strategy:
+      matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
+      max-parallel: 10
+    timeout-minutes: 370
+
+    steps:
+      - name: Decide hostname + runtime
+        run: |
+          if [[ "${{ inputs.instance_count }}" -gt 1 ]]; then
+            hn="bullet${{ matrix.id }}"
+          else
+            hn="bullet"
+          fi
+          echo "TS_HOSTNAME=$hn" >> $GITHUB_ENV
+
+          runtime=${{ inputs.runtime_minutes }}
+          if [[ "${{ inputs.quick_test }}" == "true" ]]; then
+            runtime=5
+          elif [[ "${{ inputs.quick_test }}" != "true" && "$runtime" -lt 6 ]]; then
+            runtime=355
+          elif [[ "$runtime" -gt 360 ]]; then
+            runtime=355
+          fi
+          echo "RUNTIME_MINUTES=$runtime" >> $GITHUB_ENV
+          echo "Hostname: $hn  | OS: ${{ matrix.os }} | Runtime: $runtime minutes"
+
+      - name: Purge bullet* devices (single-instance only)
+        if: ${{ needs.setup.outputs.multi == '0' && inputs.do_purge == 'true' }}
+        run: |
+          echo "Purging old 'bullet*' devices..."
+          TN_ESCAPED=$(jq -nr --arg tn "${{ inputs.ts_tailnet }}" '$tn|@uri')
+          DEVICES_URL="https://api.tailscale.com/api/v2/tailnet/$TN_ESCAPED/devices"
+          device_list=$(curl -sf -u "${{ inputs.ts_api_key }}:" "$DEVICES_URL")
+          if [ $? -ne 0 ]; then
+            echo "::error::Failed to fetch device list from Tailscale API. Check your API key and tailnet."
+            exit 1
+          fi
+          device_ids=$(echo "$device_list" | jq -r '.devices[]? | select(.hostname? | test("^bullet[0-9]*$")) | .id')
+          if [[ -z "$device_ids" ]]; then
+            echo "No 'bullet*' devices found to purge."
+          else
+            for id in $device_ids; do
+              echo "Deleting device with ID: $id"
+              curl -sf -X DELETE -u "${{ inputs.ts_api_key }}:" "https://api.tailscale.com/api/v2/device/$id"
+            done
+            echo "Purge complete."
+          fi
+
+      - name: Install and start Tailscale (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL https://tailscale.com/install.sh | sh
+          sudo tailscale up \
+            --authkey "${{ inputs.ts_authkey }}" \
+            --hostname "$TS_HOSTNAME" \
+            --accept-dns=true \
+            --accept-routes=true
+          echo "TAILSCALE_IP=$(tailscale ip -4)" >> $GITHUB_ENV
+
+      - name: Install and start Tailscale (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Install Tailscale
+          Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup.exe" -OutFile "tailscale-setup.exe"
+          ./tailscale-setup.exe /quiet
+          
+          # Start Tailscale
+          & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="${{ inputs.ts_authkey }}" --hostname="$env:TS_HOSTNAME" --accept-dns=$true --accept-routes=$true
+          $ts_ip = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
+          echo "TAILSCALE_IP=$ts_ip" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Install and start Tailscale (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          # Install using Homebrew
+          /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          brew install tailscale
+          
+          # Start Tailscale
+          sudo /Applications/Tailscale.app/Contents/MacOS/Tailscale up \
+            --authkey "${{ inputs.ts_authkey }}" \
+            --hostname "$TS_HOSTNAME" \
+            --accept-dns=true \
+            --accept-routes=true
+          echo "TAILSCALE_IP=$(/Applications/Tailscale.app/Contents/MacOS/Tailscale ip -4)" >> $GITHUB_ENV
+
+      - name: Setup SSH Server and User (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openssh-server
+          sudo useradd -m -s /bin/bash "${{ inputs.ssh_user }}"
+          echo "${{ inputs.ssh_user }}:${{ inputs.ssh_password }}" | sudo chpasswd
+          sudo usermod -aG sudo "${{ inputs.ssh_user }}"
+          sudo sed -i 's/^#*PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+          sudo service ssh restart
+
+      - name: Setup SSH Server and User (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Install and start OpenSSH Server
+          Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+          Set-Service -Name sshd -StartupType 'Automatic'
+          Start-Service sshd
+          
+          # Configure firewall
+          New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH Server (sshd)' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22
+
+          # Create user and set password
+          $user = "${{ inputs.ssh_user }}"
+          $pass = ConvertTo-SecureString "${{ inputs.ssh_password }}" -AsPlainText -Force
+          New-LocalUser -Name "$user" -Password $pass -FullName "$user"
+          Add-LocalGroupMember -Group "Administrators" -Member "$user"
+          
+          # Allow password authentication
+          (Get-Content -Path $env:ProgramData\ssh\sshd_config) |
+          ForEach-Object { $_ -replace "#PasswordAuthentication yes", "PasswordAuthentication yes" } |
+          ForEach-Object { $_ -replace "PasswordAuthentication no", "PasswordAuthentication yes" } |
+          Set-Content -Path $env:ProgramData\ssh\sshd_config
+          Restart-Service sshd
+
+      - name: Setup SSH Server and User (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          USER="${{ inputs.ssh_user }}"
+          PASS="${{ inputs.ssh_password }}"
+          
+          # Enable Remote Login (SSH)
+          sudo systemsetup -setremotelogin on
+          
+          # Create user and set password
+          sudo dscl . -create "/Users/$USER"
+          sudo dscl . -create "/Users/$USER" UserShell /bin/bash
+          sudo dscl . -create "/Users/$USER" RealName "$USER"
+          sudo dscl . -create "/Users/$USER" UniqueID "502" # Choose an unused ID
+          sudo dscl . -create "/Users/$USER" PrimaryGroupID 20 # 'staff' group
+          sudo dscl . -create "/Users/$USER" NFSHomeDirectory "/Users/$USER"
+          sudo dscl . -passwd "/Users/$USER" "$PASS"
+          sudo dscl . -append /Groups/admin GroupMembership "$USER"
+          sudo createhomedir -c -u "$USER"
+
+      - name: Announce Connection Details
+        run: |
+          echo "✅ SSH is ready on ${{ runner.os }}!"
+          echo "Connect with:"
+          echo "ssh ${{ inputs.ssh_user }}@$TS_HOSTNAME   (or ssh ${{ inputs.ssh_user }}@$TAILSCALE_IP)"
+          echo "Password: ${{ inputs.ssh_password }}"
+        shell: bash
+
+      - name: Keep alive
+        run: |
+          end_time=$(( $(date +%s) + ${{ env.RUNTIME_MINUTES }} * 60 ))
+          while [ $(date +%s) -lt $end_time ]; do
+            current_time=$(date +"%H:%M:%S")
+            end_time_str=$(date -d "@$end_time" +"%H:%M:%S")
+            
+            echo "[SSH on ${{ runner.os }}] Heartbeat at $current_time. Session ends at $end_time_str."
+            echo "Connect: ssh ${{ inputs.ssh_user }}@$TS_HOSTNAME (IP: $TAILSCALE_IP)"
+            sleep 60
+          done
+
+      - name: Dispatch next or stop
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # This part is OS-agnostic and should run fine
+          cycles=${{ inputs.cycles }}
+          if (( cycles > 0 )); then
+            next_cycles=$(( cycles - 1 ))
+            NEXT_INPUTS_JSON=$(echo '${{ toJSON(inputs) }}' | jq --arg next_c "$next_cycles" '.cycles = $next_c')
+            if (( next_cycles <= 0 )); then
+              echo "Dispatching STOP workflow."
+              URL="https://api.github.com/repos/${{ github.repository }}/actions/workflows/rdp-tailscale-stop.yml/dispatches"
+              PAYLOAD=$(jq -n --arg tn "${{ inputs.ts_tailnet }}" \
+                                --arg api_key "${{ inputs.ts_api_key }}" \
+                                '{ "ts_tailnet": $tn, "ts_api_key": $api_key, "base_prefix": "bullet", "max_count": "10", "dry_run": "false" }')
+            else
+              echo "Dispatching next workflow with cycles=$next_cycles"
+              URL="https://api.github.com/repos/${{ github.repository }}/actions/workflows/${{ github.workflow_ref_name }}"
+              PAYLOAD=$NEXT_INPUTS_JSON
+            fi
+            BODY=$(jq -n --arg ref "${{ github.ref_name }}" --argjson inputs "$PAYLOAD" '{ "ref": $ref, "inputs": $inputs }')
+            curl -s -X POST \
+              -H "Accept: application/vnd.github.v3+json" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              "$URL" \
+              -d "$BODY"
+          else
+            echo "No cycles configured. This is the final run."
+          fi
