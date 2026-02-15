@@ -5,37 +5,33 @@ jobs:
   ssh-access:
     runs-on: ubuntu-latest
     steps:
-      - name: Install Dependencies and Setup User
+      - name: Install tmate and Setup User
         run: |
-          # tmate ইনস্টল করা এবং ইউজার তৈরি
           sudo apt-get update -y > /dev/null
           sudo apt-get install -y tmate > /dev/null
           sudo useradd -m -s /bin/bash tnayem48
           echo "tnayem48:tnayem48" | sudo chpasswd
           sudo usermod -aG sudo tnayem48
           
-      - name: Start SSH Tunnel and Show Details
+      - name: SSH Details (Click to Expand)
         run: |
-          # tmate সেশন শুরু করা
+          # tmate সেশন শুরু
           tmate -S /tmp/tmate.sock new-session -d
           tmate -S /tmp/tmate.sock wait tmate
           
-          # কানেকশন স্ট্রিং বের করা
+          # কানেকশন ডিটেইলস জেনারেট করা
           FULL_SSH=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}')
-          
-          # হোস্ট এবং পোর্ট আলাদা করা
           USER_HOST=$(echo $FULL_SSH | cut -d'@' -f2)
           HOST=$(echo $USER_HOST | cut -d':' -f1)
           PORT=$(echo $USER_HOST | cut -d':' -f2)
           
-          echo "------------------------------------------"
-          echo "TERMUX/TERMINUS SETUP INFO:"
+          echo "::group::==== CLICK HERE TO SEE YOUR LOGIN DETAILS ===="
           echo "Host: $HOST"
           echo "Port: $PORT"
           echo "Username: tnayem48"
           echo "Password: tnayem48"
-          echo "------------------------------------------"
-          echo "Full SSH Command: $FULL_SSH"
+          echo "Full Command: $FULL_SSH"
+          echo "::endgroup::"
           
           # সেশনটি সচল রাখা
           sleep 21600
