@@ -1,0 +1,30 @@
+name: Secure SSH Server
+on: [workflow_dispatch]
+
+jobs:
+  ssh-job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup SSH User and Password
+        run: |
+          # আপনার দেওয়া ইউজারনেম ও পাসওয়ার্ড সেট করা হচ্ছে
+          USER="tnayem48"
+          PASS="tnayem48"
+          sudo useradd -m -s /bin/bash $USER
+          echo "$USER:$PASS" | sudo chpasswd
+          sudo usermod -aG sudo $USER
+          echo "$USER ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/$USER
+
+      - name: Install and Start SSH
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openssh-server
+          sudo service ssh start
+
+      - name: Setup Tmate Tunnel
+        uses: mxschmitt/action-tmate@v3
+        with:
+          limit-access-to-user: false
