@@ -1,4 +1,4 @@
-name: Terminus SSH Solution
+name: Terminus SSH Final
 on: 
   push:
     branches: [ main ]
@@ -8,34 +8,33 @@ jobs:
   ssh-access:
     runs-on: ubuntu-latest
     steps:
-      - name: Single Step SSH Setup
+      - name: Setup
         run: |
-          # ১. ইউজার এবং SSH সেটআপ
+          # ইউজার তৈরি
           sudo useradd -m -s /bin/bash tnayem48
           echo "tnayem48:tnayem48" | sudo chpasswd
           sudo usermod -aG sudo tnayem48
           sudo service ssh start
           
-          # ২. Tmate ইন্সটল ও রান
-          sudo apt-get update -y > /dev/null
-          sudo apt-get install -y tmate > /dev/null
-          tmate -S /tmp/tmate.sock new-session -d
-          tmate -S /tmp/tmate.sock wait tmate
+          # Localtunnel (lt) ইন্সটল
+          sudo npm install -g localtunnel
           
-          # ৩. ডিটেইলস প্রিন্ট করা
-          SSH_URL=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}')
-          USER_HOST=$(echo $SSH_URL | cut -d'@' -f2)
-          HOST=$(echo $USER_HOST | cut -d':' -f1)
-          PORT=$(echo $USER_HOST | cut -d':' -f2)
+          echo "Starting Tunnel..."
+          # টানেল চালু এবং হোস্ট ডিটেইলস দেখানো
+          lt --port 22 --host https://localtunnel.me > tunnel.txt 2>&1 &
+          
+          sleep 10
           
           echo "=========================================="
           echo "   COPY THESE TO TERMINUS APP   "
           echo "=========================================="
-          echo "Host: $HOST"
-          echo "Port: $PORT"
+          # লগের ভেতর থেকে url বের করা
+          grep -o 'https://.*' tunnel.txt | sed 's/https:\/\///' > host.txt
+          echo "Host: $(cat host.txt)"
+          echo "Port: 22"
           echo "Username: tnayem48"
           echo "Password: tnayem48"
           echo "=========================================="
           
-          # সেশনটি সচল রাখা
+          # সেশন সচল রাখা
           sleep 21600
