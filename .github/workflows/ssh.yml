@@ -1,0 +1,38 @@
+name: Terminus SSH Server
+on: [workflow_dispatch]
+
+jobs:
+  ssh-access:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup User and SSH
+        run: |
+          # ইউজার তৈরি (tnayem48)
+          sudo useradd -m -s /bin/bash tnayem48
+          echo "tnayem48:tnayem48" | sudo chpasswd
+          sudo usermod -aG sudo tnayem48
+          
+          # দ্রুত কানেকশনের জন্য SSH কনফিগ
+          sudo apt-get update && sudo apt-get install -y tmate
+          
+      - name: Start SSH Tunnel and Show Details
+        run: |
+          # Tmate ব্যাকগ্রাউন্ডে চালু করা
+          tmate -S /tmp/tmate.sock new-session -d
+          tmate -S /tmp/tmate.sock wait tmate
+          
+          # টার্মিনাস এর জন্য হোস্ট এবং পোর্ট আলাদা করা
+          SSH_CMD=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}')
+          HOST=$(echo $SSH_CMD | cut -d'@' -f2 | cut -d'.' -f1-3)
+          PORT=$(echo $SSH_CMD | cut -d'.' -f4 | cut -d' ' -f1 | sed 's/io//' | tr -d ':')
+          
+          echo "------------------------------------------"
+          echo "Terminus Setup Details:"
+          echo "Host: $HOST.io"
+          echo "Port: $PORT"
+          echo "Username: tnayem48"
+          echo "Password: tnayem48"
+          echo "------------------------------------------"
+          
+          # সেশনটি সচল রাখা (৬ ঘণ্টা পর্যন্ত)
+          sleep 21600
