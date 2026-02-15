@@ -8,14 +8,39 @@ jobs:
   ssh-access:
     runs-on: ubuntu-latest
     steps:
-      - name: Setup User
+      - name: Setup Password and SSH
         run: |
+          # রুট এবং আপনার ইউজারের পাসওয়ার্ড সেট করা
           sudo useradd -m -s /bin/bash tnayem48
+          echo "root:tnayem48" | sudo chpasswd
           echo "tnayem48:tnayem48" | sudo chpasswd
-          sudo usermod -aG sudo tnayem48
+          
+          # SSH কনফিগারেশন পরিবর্তন (যাতে পাসওয়ার্ড দিয়ে ঢোকা যায়)
+          sudo sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+          sudo sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
+          sudo service ssh restart
 
-      - name: Start SSH Session
-        uses: lhotari/action-upterm@v1
-        with:
-          ## এটি সেশনটি চালু রাখবে যতক্ষণ আপনি কানেক্টেড আছেন
-          wait-timeout-minutes: 5
+      - name: Launch Tmate Session
+        run: |
+          sudo apt-get update && sudo apt-get install -y tmate
+          tmate -S /tmp/tmate.sock new-session -d
+          tmate -S /tmp/tmate.sock wait tmate
+          
+          # ডিটেইলস জেনারেট
+          SSH_URL=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}')
+          USER_STUFF=$(echo $SSH_URL | cut -d'@' -f1 | sed 's/ssh //')
+          HOST=$(echo $SSH_URL | cut -d'@' -f2 | cut -d':' -f1)
+          PORT=$(echo $SSH_URL | cut -d'@' -f2 | cut -d':' -f2)
+          
+          echo "=========================================="
+          echo "   SET THESE IN TERMINUS APP   "
+          echo "=========================================="
+          echo "Host: $HOST"
+          echo "Port: $PORT"
+          echo "Username: $USER_STUFF"
+          echo "Password: (Leave Empty or use tnayem48)"
+          echo "=========================================="
+          echo "Note: If it asks for password, just press enter"
+          echo "or use the Username above with NO password."
+          
+          sleep 21600
