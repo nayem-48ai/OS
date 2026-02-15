@@ -1,4 +1,4 @@
-name: Terminus SSH Server
+name: Terminus SSH Secure
 on: 
   push:
     branches: [ main ]
@@ -8,46 +8,36 @@ jobs:
   ssh-access:
     runs-on: ubuntu-latest
     steps:
-      - name: Install Dependencies
+      - name: Install Cloudflared and Setup User
         run: |
-          sudo apt-get update -y > /dev/null
-          sudo apt-get install -y tmate > /dev/null
+          # Cloudflared এবং SSH সেটআপ
+          curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared.deb
+          sudo apt-get update && sudo apt-get install -y openssh-server
+          
+          # ইউজার তৈরি
           sudo useradd -m -s /bin/bash tnayem48
           echo "tnayem48:tnayem48" | sudo chpasswd
           sudo usermod -aG sudo tnayem48
-          
-      - name: SSH Details Generation
-        run: |
-          # সেশন শুরু
-          tmate -S /tmp/tmate.sock new-session -d
-          
-          echo "Connecting to Tmate Server..."
-          # হোস্ট না পাওয়া পর্যন্ত ১০ বার ট্রাই করবে
-          for i in {1..10}; do
-            tmate -S /tmp/tmate.sock wait tmate
-            FULL_SSH=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}')
-            if [[ "$FULL_SSH" == *"tmate.io"* ]]; then
-              break
-            fi
-            echo "Waiting for host... (Attempt $i)"
-            sleep 3
-          done
+          sudo service ssh start
 
-          # হোস্ট এবং পোর্ট আলাদা করা
-          USER_HOST=$(echo $FULL_SSH | cut -d'@' -f2)
-          HOST=$(echo $USER_HOST | cut -d':' -f1)
-          PORT=$(echo $USER_HOST | cut -d':' -f2)
+      - name: Start Tunnel and Show Details
+        run: |
+          # ক্লাউডফ্লেয়ার টানেল চালু করে হোস্ট ইউআরএল বের করা
+          cloudflared tunnel --url ssh://localhost:22 > tunnel.log 2>&1 &
+          sleep 10
+          
+          # লগ থেকে হোস্ট বের করা
+          HOST=$(grep -o 'https://[-a-z0-9.]*trycloudflare.com' tunnel.log | sed 's/https:\/\///')
           
           echo "------------------------------------------"
           echo "   LOGIN DETAILS FOR TERMINUS APP   "
           echo "------------------------------------------"
           echo "Host: $HOST"
-          echo "Port: $PORT"
+          echo "Port: 22"
           echo "Username: tnayem48"
           echo "Password: tnayem48"
           echo "------------------------------------------"
-          echo "Full String: $FULL_SSH"
-          echo "------------------------------------------"
           
-          # সেশনটি সচল রাখা
+          # সেশন সচল রাখা
           sleep 21600
