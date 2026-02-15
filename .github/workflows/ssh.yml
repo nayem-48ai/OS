@@ -1,4 +1,4 @@
-name: Terminus SSH Localtunnel
+name: Terminus SSH Telebit
 on: 
   push:
     branches: [ main ]
@@ -8,7 +8,7 @@ jobs:
   ssh-access:
     runs-on: ubuntu-latest
     steps:
-      - name: Setup User and SSH
+      - name: Setup SSH and User
         run: |
           sudo apt-get update -y > /dev/null
           sudo apt-get install -y openssh-server > /dev/null
@@ -17,23 +17,21 @@ jobs:
           sudo usermod -aG sudo tnayem48
           sudo service ssh start
           
-      - name: Start Localtunnel and Show Details
+      - name: Start Telebit Tunnel
         run: |
-          # Localtunnel ইনস্টল এবং রান করা
-          npm install -g localtunnel > /dev/null 2>&1
-          lt --port 22 > tunnel.log 2>&1 &
+          # Telebit ইনস্টল এবং রান করা (এটি খুব দ্রুত পোর্ট দেয়)
+          curl -fsSL https://get.telebit.io | bash > /dev/null 2>&1
+          ~/telebit http 22 > telebit.log 2>&1 &
           
-          echo "Waiting for Host..."
-          sleep 10
+          echo "Waiting for connection details..."
+          sleep 15
           
-          # ইউআরএল থেকে হোস্টনেম ফিল্টার করা
-          LT_URL=$(grep -o 'https://[-a-z0-9.]*localtunnel.me' tunnel.log | sed 's/https:\/\///')
+          # হোস্ট এবং পোর্ট দেখানোর জন্য
+          ~/telebit list
           
           echo "------------------------------------------"
           echo "   LOGIN DETAILS FOR TERMINUS APP   "
           echo "------------------------------------------"
-          echo "Host: $LT_URL"
-          echo "Port: 22"
           echo "Username: tnayem48"
           echo "Password: tnayem48"
           echo "------------------------------------------"
