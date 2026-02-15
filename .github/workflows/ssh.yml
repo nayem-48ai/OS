@@ -1,4 +1,4 @@
-name: Terminus SSH Secure
+name: Terminus SSH Serveo
 on: 
   push:
     branches: [ main ]
@@ -8,36 +8,29 @@ jobs:
   ssh-access:
     runs-on: ubuntu-latest
     steps:
-      - name: Install Cloudflared and Setup User
+      - name: Setup User and SSH
         run: |
-          # Cloudflared এবং SSH সেটআপ
-          curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-          sudo dpkg -i cloudflared.deb
-          sudo apt-get update && sudo apt-get install -y openssh-server
-          
           # ইউজার তৈরি
           sudo useradd -m -s /bin/bash tnayem48
           echo "tnayem48:tnayem48" | sudo chpasswd
           sudo usermod -aG sudo tnayem48
           sudo service ssh start
-
-      - name: Start Tunnel and Show Details
+          
+      - name: Start Serveo Tunnel
         run: |
-          # ক্লাউডফ্লেয়ার টানেল চালু করে হোস্ট ইউআরএল বের করা
-          cloudflared tunnel --url ssh://localhost:22 > tunnel.log 2>&1 &
+          echo "Starting Tunnel..."
+          # Serveo দিয়ে পোর্ট ফরওয়ার্ডিং (অ্যাকাউন্ট লাগে না)
+          # এটি একটি র্যান্ডম সাবডোমেন তৈরি করবে
+          ssh -o StrictHostKeyChecking=no -R 80:localhost:22 serveo.net > tunnel.txt 2>&1 &
+          
           sleep 10
-          
-          # লগ থেকে হোস্ট বের করা
-          HOST=$(grep -o 'https://[-a-z0-9.]*trycloudflare.com' tunnel.log | sed 's/https:\/\///')
-          
           echo "------------------------------------------"
           echo "   LOGIN DETAILS FOR TERMINUS APP   "
           echo "------------------------------------------"
-          echo "Host: $HOST"
-          echo "Port: 22"
+          echo "Host: serveo.net"
+          echo "Port: (Check the Forwarding line below)"
           echo "Username: tnayem48"
           echo "Password: tnayem48"
           echo "------------------------------------------"
-          
-          # সেশন সচল রাখা
-          sleep 21600
+          # লাইভ পোর্ট দেখার জন্য লুপ
+          tail -f tunnel.txt | grep -i "Forwarding"
