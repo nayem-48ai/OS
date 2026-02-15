@@ -1,4 +1,4 @@
-name: Terminus SSH Final
+name: Terminus SSH Live
 on: 
   push:
     branches: [ main ]
@@ -8,47 +8,35 @@ jobs:
   ssh-access:
     runs-on: ubuntu-latest
     steps:
-      - name: Install and Setup
+      - name: Setup User
         run: |
-          sudo apt-get update -y > /dev/null
-          sudo apt-get install -y tmate openssh-server > /dev/null
           sudo useradd -m -s /bin/bash tnayem48
           echo "tnayem48:tnayem48" | sudo chpasswd
           sudo usermod -aG sudo tnayem48
           sudo service ssh start
 
-      - name: Generate SSH Access
+      - name: Open Tunnel and Show Details
         run: |
-          # tmate সেশন শুরু
-          tmate -S /tmp/tmate.sock new-session -d
+          echo "Starting Tunnel... Please wait 10 seconds."
           
-          echo "Waiting for SSH URL..."
-          # যতক্ষণ না URL তৈরি হয় ততক্ষণ অপেক্ষা করবে (সর্বোচ্চ ৩০ সেকেন্ড)
-          for i in {1..30}; do
-            tmate -S /tmp/tmate.sock wait tmate
-            SSH_URL=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}')
-            if [[ "$SSH_URL" == *"tmate.io"* ]]; then
-              break
-            fi
-            sleep 1
-          done
-
-          # URL থেকে হোস্ট এবং পোর্ট আলাদা করা
-          # উদাহরণ: ssh abc123@sfo2.tmate.io:12345
-          RAW_HOST=$(echo $SSH_URL | cut -d'@' -f2)
-          HOST=$(echo $RAW_HOST | cut -d':' -f1)
-          PORT=$(echo $RAW_HOST | cut -d':' -f2)
-
+          # গেটওয়ে দিয়ে টানেল তৈরি এবং আউটপুট ফাইলে সেভ করা
+          ssh -o StrictHostKeyChecking=no -R 80:localhost:22 nokey@localhost.run > tunnel.txt 2>&1 &
+          
+          sleep 15
+          
+          # আউটপুট থেকে হোস্টনেম ফিল্টার করা
+          HOST_LINE=$(grep -oE "[a-z0-9]+\.localhost\.run" tunnel.txt | head -n 1)
+          
           echo "------------------------------------------"
           echo "   LOGIN DETAILS FOR TERMINUS APP   "
           echo "------------------------------------------"
-          echo "Host: $HOST"
-          echo "Port: $PORT"
+          echo "Host: $HOST_LINE"
+          echo "Port: 22"
           echo "Username: tnayem48"
           echo "Password: tnayem48"
           echo "------------------------------------------"
-          echo "Full Command: $SSH_URL"
-          echo "------------------------------------------"
+          echo "Full Log Below:"
+          cat tunnel.txt
           
-          # সেশনটি ৬ ঘণ্টা সচল রাখবে
+          # সেশন সচল রাখা
           sleep 21600
