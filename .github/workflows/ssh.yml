@@ -1,4 +1,4 @@
-name: Terminus SSH Live
+name: Terminus SSH Solution
 on: 
   push:
     branches: [ main ]
@@ -8,35 +8,36 @@ jobs:
   ssh-access:
     runs-on: ubuntu-latest
     steps:
-      - name: Setup User
+      - name: Setup SSH User
         run: |
           sudo useradd -m -s /bin/bash tnayem48
           echo "tnayem48:tnayem48" | sudo chpasswd
           sudo usermod -aG sudo tnayem48
           sudo service ssh start
 
-      - name: Open Tunnel and Show Details
+      - name: Start Tmate and Show Clean Details
         run: |
-          echo "Starting Tunnel... Please wait 10 seconds."
+          sudo apt-get update && sudo apt-get install -y tmate
+          tmate -S /tmp/tmate.sock new-session -d
+          tmate -S /tmp/tmate.sock wait tmate
           
-          # গেটওয়ে দিয়ে টানেল তৈরি এবং আউটপুট ফাইলে সেভ করা
-          ssh -o StrictHostKeyChecking=no -R 80:localhost:22 nokey@localhost.run > tunnel.txt 2>&1 &
+          # সরাসরি SSH URL টি বের করা
+          SSH_URL=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}')
           
-          sleep 15
+          # হোস্ট এবং পোর্ট আলাদা করা
+          # এটি ফরম্যাট করবে: ssh username@host -p port
+          USER_HOST=$(echo $SSH_URL | cut -d'@' -f2)
+          HOST=$(echo $USER_HOST | cut -d':' -f1)
+          PORT=$(echo $USER_HOST | cut -d':' -f2)
           
-          # আউটপুট থেকে হোস্টনেম ফিল্টার করা
-          HOST_LINE=$(grep -oE "[a-z0-9]+\.localhost\.run" tunnel.txt | head -n 1)
-          
-          echo "------------------------------------------"
-          echo "   LOGIN DETAILS FOR TERMINUS APP   "
-          echo "------------------------------------------"
-          echo "Host: $HOST_LINE"
-          echo "Port: 22"
+          echo "=========================================="
+          echo "   COPY THESE TO TERMINUS APP   "
+          echo "=========================================="
+          echo "Host: $HOST"
+          echo "Port: $PORT"
           echo "Username: tnayem48"
           echo "Password: tnayem48"
-          echo "------------------------------------------"
-          echo "Full Log Below:"
-          cat tunnel.txt
+          echo "=========================================="
           
-          # সেশন সচল রাখা
+          # সেশনটি ৬ ঘণ্টা সচল রাখবে
           sleep 21600
