@@ -1,4 +1,4 @@
-name: Terminus SSH Serveo
+name: Terminus SSH Localtunnel
 on: 
   push:
     branches: [ main ]
@@ -10,27 +10,33 @@ jobs:
     steps:
       - name: Setup User and SSH
         run: |
-          # ইউজার তৈরি
+          sudo apt-get update -y > /dev/null
+          sudo apt-get install -y openssh-server > /dev/null
           sudo useradd -m -s /bin/bash tnayem48
           echo "tnayem48:tnayem48" | sudo chpasswd
           sudo usermod -aG sudo tnayem48
           sudo service ssh start
           
-      - name: Start Serveo Tunnel
+      - name: Start Localtunnel and Show Details
         run: |
-          echo "Starting Tunnel..."
-          # Serveo দিয়ে পোর্ট ফরওয়ার্ডিং (অ্যাকাউন্ট লাগে না)
-          # এটি একটি র্যান্ডম সাবডোমেন তৈরি করবে
-          ssh -o StrictHostKeyChecking=no -R 80:localhost:22 serveo.net > tunnel.txt 2>&1 &
+          # Localtunnel ইনস্টল এবং রান করা
+          npm install -g localtunnel > /dev/null 2>&1
+          lt --port 22 > tunnel.log 2>&1 &
           
+          echo "Waiting for Host..."
           sleep 10
+          
+          # ইউআরএল থেকে হোস্টনেম ফিল্টার করা
+          LT_URL=$(grep -o 'https://[-a-z0-9.]*localtunnel.me' tunnel.log | sed 's/https:\/\///')
+          
           echo "------------------------------------------"
           echo "   LOGIN DETAILS FOR TERMINUS APP   "
           echo "------------------------------------------"
-          echo "Host: serveo.net"
-          echo "Port: (Check the Forwarding line below)"
+          echo "Host: $LT_URL"
+          echo "Port: 22"
           echo "Username: tnayem48"
           echo "Password: tnayem48"
           echo "------------------------------------------"
-          # লাইভ পোর্ট দেখার জন্য লুপ
-          tail -f tunnel.txt | grep -i "Forwarding"
+          
+          # সেশন সচল রাখা
+          sleep 21600
