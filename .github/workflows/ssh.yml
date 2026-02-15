@@ -7,32 +7,33 @@ jobs:
     steps:
       - name: Setup User and SSH
         run: |
-          # ইউজার তৈরি (tnayem48)
+          # ইউজার তৈরি
           sudo useradd -m -s /bin/bash tnayem48
           echo "tnayem48:tnayem48" | sudo chpasswd
           sudo usermod -aG sudo tnayem48
           
-          # দ্রুত কানেকশনের জন্য SSH কনফিগ
-          sudo apt-get update && sudo apt-get install -y tmate
-          
       - name: Start SSH Tunnel and Show Details
         run: |
-          # Tmate ব্যাকগ্রাউন্ডে চালু করা
+          # tmate সেশন শুরু করা (এটি ডিফল্টভাবে ইনস্টল থাকে)
           tmate -S /tmp/tmate.sock new-session -d
           tmate -S /tmp/tmate.sock wait tmate
           
-          # টার্মিনাস এর জন্য হোস্ট এবং পোর্ট আলাদা করা
-          SSH_CMD=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}')
-          HOST=$(echo $SSH_CMD | cut -d'@' -f2 | cut -d'.' -f1-3)
-          PORT=$(echo $SSH_CMD | cut -d'.' -f4 | cut -d' ' -f1 | sed 's/io//' | tr -d ':')
+          # কানেকশন স্ট্রিং বের করা
+          FULL_SSH=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}')
+          
+          # হোস্ট এবং পোর্ট আলাদা করা (যেমন: sfo2.tmate.io এবং পোর্ট ২২৯৩৪)
+          USER_HOST=$(echo $FULL_SSH | cut -d'@' -f2)
+          HOST=$(echo $USER_HOST | cut -d':' -f1)
+          PORT=$(echo $USER_HOST | cut -d':' -f2)
           
           echo "------------------------------------------"
-          echo "Terminus Setup Details:"
-          echo "Host: $HOST.io"
+          echo "TERMUX/TERMINUS SETUP INFO:"
+          echo "Host: $HOST"
           echo "Port: $PORT"
           echo "Username: tnayem48"
           echo "Password: tnayem48"
           echo "------------------------------------------"
+          echo "Full SSH Command: $FULL_SSH"
           
-          # সেশনটি সচল রাখা (৬ ঘণ্টা পর্যন্ত)
+          # সেশনটি সচল রাখা
           sleep 21600
