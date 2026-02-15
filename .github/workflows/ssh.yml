@@ -1,11 +1,14 @@
 name: Terminus SSH Server
-on: [workflow_dispatch]
+on: 
+  push:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   ssh-access:
     runs-on: ubuntu-latest
     steps:
-      - name: Install tmate and Setup User
+      - name: Install Dependencies
         run: |
           sudo apt-get update -y > /dev/null
           sudo apt-get install -y tmate > /dev/null
@@ -13,25 +16,38 @@ jobs:
           echo "tnayem48:tnayem48" | sudo chpasswd
           sudo usermod -aG sudo tnayem48
           
-      - name: SSH Details (Click to Expand)
+      - name: SSH Details Generation
         run: |
-          # tmate সেশন শুরু
+          # সেশন শুরু
           tmate -S /tmp/tmate.sock new-session -d
-          tmate -S /tmp/tmate.sock wait tmate
           
-          # কানেকশন ডিটেইলস জেনারেট করা
-          FULL_SSH=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}')
+          echo "Connecting to Tmate Server..."
+          # হোস্ট না পাওয়া পর্যন্ত ১০ বার ট্রাই করবে
+          for i in {1..10}; do
+            tmate -S /tmp/tmate.sock wait tmate
+            FULL_SSH=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}')
+            if [[ "$FULL_SSH" == *"tmate.io"* ]]; then
+              break
+            fi
+            echo "Waiting for host... (Attempt $i)"
+            sleep 3
+          done
+
+          # হোস্ট এবং পোর্ট আলাদা করা
           USER_HOST=$(echo $FULL_SSH | cut -d'@' -f2)
           HOST=$(echo $USER_HOST | cut -d':' -f1)
           PORT=$(echo $USER_HOST | cut -d':' -f2)
           
-          echo "::group::==== CLICK HERE TO SEE YOUR LOGIN DETAILS ===="
+          echo "------------------------------------------"
+          echo "   LOGIN DETAILS FOR TERMINUS APP   "
+          echo "------------------------------------------"
           echo "Host: $HOST"
           echo "Port: $PORT"
           echo "Username: tnayem48"
           echo "Password: tnayem48"
-          echo "Full Command: $FULL_SSH"
-          echo "::endgroup::"
+          echo "------------------------------------------"
+          echo "Full String: $FULL_SSH"
+          echo "------------------------------------------"
           
           # সেশনটি সচল রাখা
           sleep 21600
