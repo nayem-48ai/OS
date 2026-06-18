@@ -6,22 +6,26 @@ NC='\033[0m'
 
 echo -e "${YELLOW}--- Opencode & Antigravity Auto Setup by Tnayem48 is Started ---${NC}"
 
-# ১. প্রুট ও আর্চলাইন্যাক্স সেটআপ
-echo -e "${GREEN}[1/4] Installing Proot-Distro and ArchLinux...${NC}"
+# ১. প্রুট ও উবুন্টু সেটআপ (arm64 ফ্রেন্ডলি)
+echo -e "${GREEN}[1/4] Installing Proot-Distro and Ubuntu...${NC}"
 pkg update && pkg upgrade -y
 pkg install proot-distro -y
-proot-distro install archlinux || echo "ArchLinux already exists, skipping install..."
+proot-distro install ubuntu || echo "Ubuntu already exists, skipping install..."
 
-# ২. আর্চলাইন্যাক্স কনফিগারেশন
-echo -e "${GREEN}[2/4] Configuring ArchLinux Environment...${NC}"
-proot-distro login archlinux -- bash -c "
-  pacman -Syu --noconfirm
-  pacman -S curl bash --noconfirm
+# ২. উবুন্টু কনফিগারেশন এবং ওপেনকোড ইনস্টলেশন
+echo -e "${GREEN}[2/4] Configuring Ubuntu Environment...${NC}"
+proot-distro login ubuntu -- bash -c "
+  apt update && apt upgrade -y
+  apt install curl bash -y
 
   # Bun ইনস্টল
   curl -fsSL https://bun.sh/install | bash
   export BUN_INSTALL=\"\$HOME/.bun\"
   export PATH=\"\$BUN_INSTALL/bin:\$PATH\"
+  
+  # গ্লোবাল এনভায়রনমেন্টে Bun পাথ যোগ করা যাতে পরে লগইন করলেও পায়
+  echo 'export BUN_INSTALL=\"\$HOME/.bun\"' >> ~/.bashrc
+  echo 'export PATH=\"\$BUN_INSTALL/bin:\$PATH\"' >> ~/.bashrc
   
   # Opencode ইনস্টল
   curl -fsSL https://opencode.ai/install | bash
@@ -54,7 +58,7 @@ proot-distro login archlinux -- bash -c "
 }
 JSON
 
-  echo -e '${GREEN}[3/4] Setup Complete!${NC}'
-  echo -e '${YELLOW}[4/4] Starting Authentication...${NC}'
+  echo -e \"\${GREEN}[3/4] Setup Complete!\${NC}\"
+  echo -e \"\${YELLOW}[4/4] Starting Authentication...\${NC}\"
   opencode auth login
 "
