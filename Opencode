@@ -11,7 +11,8 @@ NC='\033[0m'
 
 TICK="${GREEN}✔${NC}"
 CROSS="${RED}✘${NC}"
-LOG_FILE="/tmp/opencode_setup.log"
+# Termux এর জন্য সঠিক লগ ফাইল পাথ
+LOG_FILE="$HOME/.opencode_setup.log"
 
 # --- Slim Banner for All Screen Sizes ---
 print_banner() {
@@ -30,13 +31,12 @@ print_banner() {
     echo -e "${NC}\n"
 }
 
-# --- Real-time Activity Spinner ---
-# এটি ফেইক পার্সেন্টেজের বদলে ব্যাকগ্রাউন্ড প্রসেসের লাইভ আউটপুট দেখাবে
+# --- Real-time Activity Spinner (Classic Version) ---
 show_realtime_progress() {
     local task_name=$1
     local pids=$2
-    # আধুনিক ব্রেইল স্পিনার
-    local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    # ক্লাসিক স্পিনার যা সব টার্মিনালে সাপোর্ট করে
+    local spinstr='|/-\'
 
     echo -e "${BLUE}[*] ${task_name} Started...${NC}"
 
@@ -45,13 +45,11 @@ show_realtime_progress() {
         local current_spin=$spinstr
         spinstr=$temp${spinstr%"$temp"}
 
-        # লগ ফাইল থেকে শেষ লাইনটা পড়ে স্ক্রিনে দেখানো (স্ক্রিন সাইজ ঠিক রাখতে ৪৫ ক্যারেক্টার পর্যন্ত)
         local current_action=$(tail -n 1 "$LOG_FILE" 2>/dev/null | tr -dc '[:print:]' | cut -c 1-45)
         
-        # \e[K দিয়ে লাইনের বাকি অংশ ক্লিয়ার করা হয় যাতে টেক্সট ওভারল্যাপ না করে
-        printf "\r  ${YELLOW}%c${NC} ${CYAN}%-22s${NC} ➔ %-45s\e[K" "${current_spin:0:1}" "$task_name" "$current_action"
+        printf "\r  ${YELLOW}[%c]${NC} ${CYAN}%-22s${NC} ➔ %-45s\e[K" "${current_spin:0:1}" "$task_name" "$current_action"
         
-        sleep 0.1
+        sleep 0.15
     done
     
     printf "\r  ${TICK} ${GREEN}%-22s${NC} ➔ Completed Successfully!\e[K\n\n" "$task_name"
@@ -60,12 +58,12 @@ show_realtime_progress() {
 # --- Main Script Execution ---
 print_banner
 
-# লগ ফাইল ক্লিয়ার করে নেওয়া
+# লগ ফাইল তৈরি/ক্লিয়ার করা
 > "$LOG_FILE"
 
 # ১. প্রুট ও উবুন্টু সেটআপ
 echo -e "${YELLOW}Phase 1: Environment Preparation${NC}"
-(pkg update -y && pkg upgrade -y && pkg install proot-distro -y) >> "$LOG_FILE" 2>&1 &
+(pkg update -y && pkg install proot-distro -y) >> "$LOG_FILE" 2>&1 &
 show_realtime_progress "Updating Termux" $!
 
 if proot-distro list | grep -q "ubuntu.*installed"; then
@@ -109,7 +107,6 @@ JSON
 echo -e "${YELLOW}Phase 2: Core System Configuration${NC}"
 proot-distro login ubuntu -- bash -c "
   apt update >> $LOG_FILE 2>&1
-  apt upgrade -y >> $LOG_FILE 2>&1
   apt install curl bash -y >> $LOG_FILE 2>&1
 
   # Bun Environment Setup
@@ -144,5 +141,8 @@ echo -e "${YELLOW}Phase 3: Finalization${NC}"
 echo -e "${YELLOW}${BOLD}➔ Launching Secure Authentication Handshake...${NC}"
 echo -e "${BLUE}[!] System is switching control to Opencode CLI.${NC}\n"
 sleep 1.5
+
+# শেষে লগ ফাইল ডিলিট করে দেওয়া
+rm -f "$LOG_FILE"
 
 proot-distro login ubuntu -- bash -c "opencode auth login"
