@@ -139,7 +139,7 @@ show_realtime_progress "Configuring Packages" $!
 # ৪. ফাইনাল হ্যান্ডশেক এবং অথেন্টিকেশন
 echo -e "${YELLOW}Phase 3: Finalization${NC}"
 echo -e "${YELLOW}${BOLD}➔ Launching Secure Authentication Handshake...${NC}"
-echo -e "${BLUE}[!] System is switching control to Opencode CLI.${NC}\n"
+echo -e "${BLUE}[!] System is switching control to Opencode CLI. Please be patient... This Take a while...${NC}\n"
 sleep 1.5
 
 # শেষে লগ ফাইল ডিলিট করে দেওয়া
