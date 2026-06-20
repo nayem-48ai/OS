@@ -1,148 +1,61 @@
 #!/bin/bash
 
-# --- Color Definitions & UI Elements ---
-RED='\033[1;31m'
+# --- Color Definitions ---
 GREEN='\033[1;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[1;34m'
 CYAN='\033[1;36m'
-BOLD='\033[1m'
 NC='\033[0m'
 
-TICK="${GREEN}✔${NC}"
-CROSS="${RED}✘${NC}"
-# Termux এর জন্য সঠিক লগ ফাইল পাথ
 LOG_FILE="$HOME/.opencode_setup.log"
 
-# --- Slim Banner for All Screen Sizes ---
 print_banner() {
     clear
     echo -e "${CYAN}${BOLD}"
     echo "  ============================================="
-    echo "    ____                                  __   "
-    echo "   / __ \____  ___  ____  _________  ____/ /__ "
-    echo "  / / / / __ \/ _ \/ __ \/ ___/ __ \/ __  / _ \\"
-    echo " / /_/ / /_/ /  __/ / / / /__/ /_/ / /_/ /  __/"
-    echo " \____/ .___/\___/_/ /_/\___/\____/\__,_/\___/ "
-    echo "     /_/                                       "
-    echo "        Opencode & Antigravity Auto-Setup      "
-    echo "           Engineered by: Tnayem48             "
+    echo "    Opencode & Antigravity Auto-Setup         "
     echo "  ============================================="
     echo -e "${NC}\n"
 }
 
-# --- Real-time Activity Spinner (Classic Version) ---
-show_realtime_progress() {
+# ক্লিন প্রোগ্রেস ইন্ডিকেটর (লগ ফাইল দেখাবে না)
+show_status() {
     local task_name=$1
     local pids=$2
-    # ক্লাসিক স্পিনার যা সব টার্মিনালে সাপোর্ট করে
-    local spinstr='|/-\'
+    local spin='|/-\'
+    local i=0
 
-    echo -e "${BLUE}[*] ${task_name} Started...${NC}"
-
-    while kill -0 $pids 2>/dev/null; do
-        local temp=${spinstr#?}
-        local current_spin=$spinstr
-        spinstr=$temp${spinstr%"$temp"}
-
-        local current_action=$(tail -n 1 "$LOG_FILE" 2>/dev/null | tr -dc '[:print:]' | cut -c 1-45)
-        
-        printf "\r  ${YELLOW}[%c]${NC} ${CYAN}%-22s${NC} ➔ %-45s\e[K" "${current_spin:0:1}" "$task_name" "$current_action"
-        
-        sleep 0.15
-    done
+    echo -ne "${BLUE}[*] ${task_name}...${NC}"
     
-    printf "\r  ${TICK} ${GREEN}%-22s${NC} ➔ Completed Successfully!\e[K\n\n" "$task_name"
+    while kill -0 $pids 2>/dev/null; do
+        i=$(( (i+1) %4 ))
+        printf "\r${BLUE}[*] ${task_name} ${YELLOW}[${spin:$i:1}]${NC}"
+        sleep 0.2
+    done
+    printf "\r${GREEN}[✔] ${task_name} Completed!${NC}\n"
 }
 
-# --- Main Script Execution ---
 print_banner
 
-# লগ ফাইল তৈরি/ক্লিয়ার করা
-> "$LOG_FILE"
-
-# ১. প্রুট ও উবুন্টু সেটআপ
-echo -e "${YELLOW}Phase 1: Environment Preparation${NC}"
+# ১. সিস্টেম সেটআপ
 (pkg update -y && pkg install proot-distro -y) >> "$LOG_FILE" 2>&1 &
-show_realtime_progress "Updating Termux" $!
+show_status "Updating Termux" $!
 
-if proot-distro list | grep -q "ubuntu.*installed"; then
-    echo -e "  ${GREEN}✔ Ubuntu already installed. Ready to inject.${NC}\n"
-else
+if ! proot-distro list | grep -q "ubuntu.*installed"; then
     proot-distro install ubuntu >> "$LOG_FILE" 2>&1 &
-    show_realtime_progress "Installing Ubuntu Core" $!
+    show_status "Installing Ubuntu" $!
 fi
 
-# উবুন্টু ফোল্ডারের শর্টকাট তৈরি
-ln -sf $PREFIX/var/lib/proot-distro/containers/ubuntu/rootfs ~/ubuntu-fs
-echo -e "  ${GREEN}✔ RootFS Shortcut created at ~/ubuntu-fs${NC}\n"
-
-# ২. এনভায়রনমেন্ট ও কনফিগারেশন ডাটা
-JSON_DATA=$(cat << 'JSON'
-{
-  "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-antigravity-auth"],
-  "provider": {
-    "google": {
-      "models": {
-        "antigravity-gemini-3-pro": { "name": "Gemini 3 Pro (Antigravity)", "limit": { "context": 1048576, "output": 65535 }, "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }, "variants": { "low": { "thinkingLevel": "low" }, "high": { "thinkingLevel": "high" } } },
-        "antigravity-gemini-3.1-pro": { "name": "Gemini 3.1 Pro (Antigravity)", "limit": { "context": 1048576, "output": 65535 }, "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }, "variants": { "low": { "thinkingLevel": "low" }, "high": { "thinkingLevel": "high" } } },
-        "antigravity-gemini-3-flash": { "name": "Gemini 3 Flash (Antigravity)", "limit": { "context": 1048576, "output": 65536 }, "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }, "variants": { "minimal": { "thinkingLevel": "minimal" }, "low": { "thinkingLevel": "low" }, "medium": { "thinkingLevel": "medium" }, "high": { "thinkingLevel": "high" } } },
-        "antigravity-claude-sonnet-4-6": { "name": "Claude Sonnet 4.6 (Antigravity)", "limit": { "context": 200000, "output": 64000 }, "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] } },
-        "antigravity-claude-opus-4-6-thinking": { "name": "Claude Opus 4.6 Thinking (Antigravity)", "limit": { "context": 200000, "output": 64000 }, "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }, "variants": { "low": { "thinkingConfig": { "thinkingBudget": 8192 } }, "max": { "thinkingConfig": { "thinkingBudget": 32768 } } } },
-        "gemini-2.5-flash": { "name": "Gemini 2.5 Flash (Gemini CLI)", "limit": { "context": 1048576, "output": 65536 }, "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] } },
-        "gemini-2.5-pro": { "name": "Gemini 2.5 Pro (Gemini CLI)", "limit": { "context": 1048576, "output": 65536 }, "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] } },
-        "gemini-3-flash-preview": { "name": "Gemini 3 Flash Preview (Gemini CLI)", "limit": { "context": 1048576, "output": 65536 }, "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] } },
-        "gemini-3-pro-preview": { "name": "Gemini 3 Pro Preview (Gemini CLI)", "limit": { "context": 1048576, "output": 65535 }, "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] } },
-        "gemini-3.1-pro-preview": { "name": "Gemini 3.1 Pro Preview (Gemini CLI)", "limit": { "context": 1048576, "output": 65535 }, "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] } },
-        "gemini-3.1-pro-preview-customtools": { "name": "Gemini 3.1 Pro Preview Custom Tools (Gemini CLI)", "limit": { "context": 1048576, "output": 65535 }, "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] } }
-      }
-    }
-  }
-}
-JSON
-)
-
-# ৩. উবুন্টুর ভেতরে ইন্টারনাল সেটআপ রান করা
-echo -e "${YELLOW}Phase 2: Core System Configuration${NC}"
+# ২. কনফিগারেশন
+echo -e "${YELLOW}Phase: Configuring Environment...${NC}"
 proot-distro login ubuntu -- bash -c "
-  apt update >> $LOG_FILE 2>&1
-  apt install curl bash -y >> $LOG_FILE 2>&1
+  apt update -y && apt install curl -y
+  curl -fsSL https://bun.sh/install | bash
+  # লগ ফাইল এখানে আর ডাম্প করব না, সব সাইলেন্ট থাকবে
+" >> "$LOG_FILE" 2>&1 &
+show_status "Setting up Dependencies" $!
 
-  # Bun Environment Setup
-  if [ ! -d \"\$HOME/.bun\" ]; then
-    echo 'Installing Bun...' >> $LOG_FILE
-    curl -fsSL https://bun.sh/install | bash >> $LOG_FILE 2>&1
-  fi
-  
-  grep -q 'BUN_INSTALL' ~/.bashrc || echo 'export BUN_INSTALL=\"\$HOME/.bun\"' >> ~/.bashrc
-  grep -q 'PATH.*\.bun' ~/.bashrc || echo 'export PATH=\"\$BUN_INSTALL/bin:\$PATH\"' >> ~/.bashrc
-  
-  export BUN_INSTALL=\"\$HOME/.bun\"
-  export PATH=\"\$BUN_INSTALL/bin:\$PATH\"
-  
-  # Opencode Installation
-  echo 'Setting up Opencode...' >> $LOG_FILE
-  curl -fsSL https://opencode.ai/install | bash >> $LOG_FILE 2>&1
-  chmod +x ~/.opencode/bin/opencode
-  cp ~/.opencode/bin/opencode /usr/bin/
-
-  # Injecting Config
-  echo 'Writing Config Data...' >> $LOG_FILE
-  mkdir -p ~/.config/opencode/
-  cat << 'EOF' > ~/.config/opencode/opencode.json
-$JSON_DATA
-EOF
-" &
-show_realtime_progress "Configuring Packages" $!
-
-# ৪. ফাইনাল হ্যান্ডশেক এবং অথেন্টিকেশন
-echo -e "${YELLOW}Phase 3: Finalization${NC}"
-echo -e "${YELLOW}${BOLD}➔ Launching Secure Authentication Handshake...${NC}"
-echo -e "${BLUE}[!] System is switching control to Opencode CLI. Please be patient... This Take a while...${NC}\n"
-sleep 1.5
-
-# শেষে লগ ফাইল ডিলিট করে দেওয়া
+# ৪. ফাইনাল অথ
+echo -e "\n${GREEN}➔ Launching Authentication... Please be patient, This may take a while...${NC}"
 rm -f "$LOG_FILE"
-
 proot-distro login ubuntu -- bash -c "opencode auth login"
