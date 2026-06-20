@@ -11,6 +11,7 @@ NC='\033[0m'
 
 TICK="${GREEN}✔${NC}"
 CROSS="${RED}✘${NC}"
+LOG_FILE="/tmp/opencode_setup.log"
 
 # --- Slim Banner for All Screen Sizes ---
 print_banner() {
@@ -29,66 +30,54 @@ print_banner() {
     echo -e "${NC}\n"
 }
 
-# --- Hybrid Spinner + 0-100% Progress Bar ---
-show_progress() {
-    local duration=$1
-    local task_name=$2
-    local pids=$3
-    local elapsed=0
-    local fill_char="█"
-    local empty_char="░"
-    local total_blocks=20
-    local spinstr='|/-\'
+# --- Real-time Activity Spinner ---
+# এটি ফেইক পার্সেন্টেজের বদলে ব্যাকগ্রাউন্ড প্রসেসের লাইভ আউটপুট দেখাবে
+show_realtime_progress() {
+    local task_name=$1
+    local pids=$2
+    # আধুনিক ব্রেইল স্পিনার
+    local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 
-    echo -e "${BLUE}[*] ${task_name}...${NC}"
+    echo -e "${BLUE}[*] ${task_name} Started...${NC}"
 
-    # ব্যাকগ্রাউন্ড প্রসেস চলাকালীন লুপ চলবে
     while kill -0 $pids 2>/dev/null; do
-        # স্পিনার লজিক
         local temp=${spinstr#?}
         local current_spin=$spinstr
         spinstr=$temp${spinstr%"$temp"}
 
-        # প্রোগ্রেস বার ও পার্সেন্টেজ লজিক (ভার্চুয়াল টাইমিং বেসড সেফগার্ড)
-        let elapsed++
-        local percent=$(( (elapsed * 100) / duration ))
-        if [ $percent -gt 98 ]; then percent=98; fi # প্রসেস শেষ না হওয়া পর্যন্ত ৯৮% এ হোল্ড করবে
-
-        local filled_blocks=$(( (percent * total_blocks) / 100 ))
-        local empty_blocks=$(( total_blocks - filled_blocks ))
-
-        local bar=""
-        for ((i=0; i<filled_blocks; i++)); do bar+="$fill_char"; done
-        for ((i=0; i<empty_blocks; i++)); do bar+="$empty_char"; done
-
-        # ক্যারেজ রিটার্ন (\r) দিয়ে একই লাইনে স্পিনার ও বার প্রিন্ট করা
-        printf "\r  ${YELLOW}[%c]${NC} ${CYAN}[%-20s]${NC} %d%%" "${current_spin:0:1}" "$bar" "$percent"
+        # লগ ফাইল থেকে শেষ লাইনটা পড়ে স্ক্রিনে দেখানো (স্ক্রিন সাইজ ঠিক রাখতে ৪৫ ক্যারেক্টার পর্যন্ত)
+        local current_action=$(tail -n 1 "$LOG_FILE" 2>/dev/null | tr -dc '[:print:]' | cut -c 1-45)
         
-        sleep 0.15
+        # \e[K দিয়ে লাইনের বাকি অংশ ক্লিয়ার করা হয় যাতে টেক্সট ওভারল্যাপ না করে
+        printf "\r  ${YELLOW}%c${NC} ${CYAN}%-22s${NC} ➔ %-45s\e[K" "${current_spin:0:1}" "$task_name" "$current_action"
+        
+        sleep 0.1
     done
     
-    # প্রসেস সাকসেসফুলি শেষ হলে ফোর্সড ১০০% শো করা
-    local full_bar=""
-    for ((i=0; i<total_blocks; i++)); do full_bar+="$fill_char"; done
-    printf "\r  ${TICK} ${CYAN}[%-20s]${NC} 100%%\n" "$full_bar"
-    echo -e "  ${GREEN}➔ ${task_name} Completed!${NC}\n"
+    printf "\r  ${TICK} ${GREEN}%-22s${NC} ➔ Completed Successfully!\e[K\n\n" "$task_name"
 }
 
 # --- Main Script Execution ---
 print_banner
 
+# লগ ফাইল ক্লিয়ার করে নেওয়া
+> "$LOG_FILE"
+
 # ১. প্রুট ও উবুন্টু সেটআপ
-# এখানে আমরা টার্মিনক্সের প্যাকেজ ম্যানেজার আপডেট স্ক্রিনে দেখাবো না, তবে প্রুট ডিস্ট্রোর ইনফো ইউজার দেখতে পাবে
-(pkg update && pkg upgrade -y && pkg install proot-distro -y) > /dev/null 2>&1 &
-show_progress 30 "Updating Termux & System Core" $!
+echo -e "${YELLOW}Phase 1: Environment Preparation${NC}"
+(pkg update -y && pkg upgrade -y && pkg install proot-distro -y) >> "$LOG_FILE" 2>&1 &
+show_realtime_progress "Updating Termux" $!
 
 if proot-distro list | grep -q "ubuntu.*installed"; then
-    echo -e "  ${GREEN}✔ Ubuntu environment already exists. Ready to inject.${NC}\n"
+    echo -e "  ${GREEN}✔ Ubuntu already installed. Ready to inject.${NC}\n"
 else
-    # প্রুট ডিস্ট্রো ইনস্টলেশনের মূল আউটপুটটি স্ক্রিনে আসতে দেওয়া হলো যাতে ইউজার দেখতে পায় উবুন্টু রেডি হচ্ছে
-    proot-distro install ubuntu &
-    show_progress 60 "Downloading & Deploying Ubuntu Core" $!
+    proot-distro install ubuntu >> "$LOG_FILE" 2>&1 &
+    show_realtime_progress "Installing Ubuntu Core" $!
 fi
+
+# উবুন্টু ফোল্ডারের শর্টকাট তৈরি
+ln -sf $PREFIX/var/lib/proot-distro/containers/ubuntu/rootfs ~/ubuntu-fs
+echo -e "  ${GREEN}✔ RootFS Shortcut created at ~/ubuntu-fs${NC}\n"
 
 # ২. এনভায়রনমেন্ট ও কনফিগারেশন ডাটা
 JSON_DATA=$(cat << 'JSON'
@@ -117,15 +106,16 @@ JSON
 )
 
 # ৩. উবুন্টুর ভেতরে ইন্টারনাল সেটআপ রান করা
-# এখানে apt update এর গুরুত্বপূর্ণ ট্রাফিক হিটগুলো স্ক্রিনে প্রিন্ট হবে, কিন্তু বাকি ইনস্টলেশন ব্যাকগ্রাউন্ডে প্রোগ্রেস বারে চলবে।
+echo -e "${YELLOW}Phase 2: Core System Configuration${NC}"
 proot-distro login ubuntu -- bash -c "
-  apt update
-  apt upgrade -y > /dev/null 2>&1
-  apt install curl bash -y > /dev/null 2>&1
+  apt update >> $LOG_FILE 2>&1
+  apt upgrade -y >> $LOG_FILE 2>&1
+  apt install curl bash -y >> $LOG_FILE 2>&1
 
   # Bun Environment Setup
   if [ ! -d \"\$HOME/.bun\" ]; then
-    curl -fsSL https://bun.sh/install | bash > /dev/null 2>&1
+    echo 'Installing Bun...' >> $LOG_FILE
+    curl -fsSL https://bun.sh/install | bash >> $LOG_FILE 2>&1
   fi
   
   grep -q 'BUN_INSTALL' ~/.bashrc || echo 'export BUN_INSTALL=\"\$HOME/.bun\"' >> ~/.bashrc
@@ -135,19 +125,22 @@ proot-distro login ubuntu -- bash -c "
   export PATH=\"\$BUN_INSTALL/bin:\$PATH\"
   
   # Opencode Installation
-  curl -fsSL https://opencode.ai/install | bash > /dev/null 2>&1
+  echo 'Setting up Opencode...' >> $LOG_FILE
+  curl -fsSL https://opencode.ai/install | bash >> $LOG_FILE 2>&1
   chmod +x ~/.opencode/bin/opencode
   cp ~/.opencode/bin/opencode /usr/bin/
 
   # Injecting Config
+  echo 'Writing Config Data...' >> $LOG_FILE
   mkdir -p ~/.config/opencode/
   cat << 'EOF' > ~/.config/opencode/opencode.json
 $JSON_DATA
 EOF
 " &
-show_progress 45 "Configuring Ubuntu Ecosystem (Bun, Engines, Configs)" $!
+show_realtime_progress "Configuring Packages" $!
 
 # ৪. ফাইনাল হ্যান্ডশেক এবং অথেন্টিকেশন
+echo -e "${YELLOW}Phase 3: Finalization${NC}"
 echo -e "${YELLOW}${BOLD}➔ Launching Secure Authentication Handshake...${NC}"
 echo -e "${BLUE}[!] System is switching control to Opencode CLI.${NC}\n"
 sleep 1.5
