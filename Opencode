@@ -20,51 +20,55 @@ print_banner() {
     echo -e "${NC}\n"
 }
 
-# প্রতিটি কাজের জন্য ক্লিনার ফাংশন
-step() {
-    local task=$1
-    echo -e "${BLUE}  ➔ ${NC}${task}..."
-}
-
-done_step() {
-    # আগের লাইনটি মুছে দিয়ে টিক মার্ক বসানো
-    printf "\033[1A\033[K"
-    echo -e "  ${TICK} ${GREEN}Done:${NC} $1"
+# অ্যানিমেটেড লোডার ফাংশন
+run_animated_task() {
+    local task_name=$1
+    local command=$2
+    local spinner=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+    
+    # ব্যাকগ্রাউন্ডে কমান্ড রান করা
+    eval "$command" &> /dev/null &
+    local pid=$!
+    
+    local i=0
+    printf "  ${BLUE}[*] ${task_name}... "
+    
+    # যতক্ষণ কমান্ড চলছে, স্পিনার ঘোরানো
+    while kill -0 $pid 2>/dev/null; do
+        printf "\b${spinner[$i]}"
+        i=$(( (i+1) % 10 ))
+        sleep 0.1
+    done
+    
+    printf "\b${TICK}\n"
 }
 
 print_banner
 
-echo -e "${YELLOW}Phase 1: Environment Preparation${NC}"
-step "Updating System"
-pkg update -y &> /dev/null && pkg upgrade -y &> /dev/null
-done_step "Updating System"
-
-step "Installing Dependencies"
-pkg install proot-distro -y &> /dev/null
-done_step "Installing Dependencies"
+# ১. এনভায়রনমেন্ট সেটআপ
+echo -e "${YELLOW}Phase 1: Environment Setup${NC}"
+run_animated_task "Updating system packages" "pkg update -y && pkg upgrade -y"
+run_animated_task "Preparing core dependencies" "pkg install proot-distro -y"
 
 if proot-distro list | grep -q "ubuntu.*installed"; then
-    echo -e "  ${TICK} Ubuntu is already ready."
+    echo -e "  ${TICK} ${GREEN}Ubuntu container is ready${NC}\n"
 else
-    step "Installing Ubuntu (This may take a moment)"
+    # বড় কাজের জন্য আলাদা স্টাইল
+    echo -e "  ${BLUE}[!]${NC} Downloading Ubuntu (This may take a moment)..."
     proot-distro install ubuntu &> /dev/null
-    done_step "Installing Ubuntu"
+    echo -e "  ${TICK} ${GREEN}Ubuntu installation completed!${NC}\n"
 fi
 
-echo -e "\n${YELLOW}Phase 2: Core System Configuration${NC}"
-step "Preparing Internal RootFS"
-ln -sf $PREFIX/var/lib/proot-distro/containers/ubuntu/rootfs ~/ubuntu-fs
-done_step "Internal RootFS Linked"
+# ২. কনফিগারেশন
+echo -e "${YELLOW}Phase 2: Core System Configuration${NC}"
+run_animated_task "Initializing Ubuntu environment" "proot-distro login ubuntu -- bash -c 'apt update -y &> /dev/null'"
+run_animated_task "Installing necessary runtimes" "proot-distro login ubuntu -- bash -c 'apt install curl bash -y &> /dev/null'"
+run_animated_task "Configuring Bun engine" "proot-distro login ubuntu -- bash -c 'if [ ! -d \"\$HOME/.bun\" ]; then curl -fsSL https://bun.sh/install | bash &> /dev/null; fi'"
+run_animated_task "Deploying Opencode CLI" "proot-distro login ubuntu -- bash -c 'curl -fsSL https://opencode.ai/install | bash &> /dev/null && mkdir -p ~/.config/opencode/'"
 
-step "Setting up Bun & Opencode (Please be patient)"
-proot-distro login ubuntu -- bash -c "
-  apt update -y &> /dev/null
-  apt install curl bash -y &> /dev/null
-  if [ ! -d \"\$HOME/.bun\" ]; then curl -fsSL https://bun.sh/install | bash &> /dev/null; fi
-  curl -fsSL https://opencode.ai/install | bash &> /dev/null
-" &> /dev/null
-done_step "Bun & Opencode Configuration"
+# ৩. ফাইনাল হ্যান্ডশেক
+echo -e "${YELLOW}Phase 3: Finalization${NC}"
+echo -e "${BLUE}[!] Please be patient. This may take a while as we finalize authentication...${NC}\n"
 
-echo -e "\n${YELLOW}Phase 3: Finalization${NC}"
-echo -e "${BLUE}[!] Please be patient. Finalizing authentication...${NC}"
+# হ্যান্ডশেকের সময় বাফার ক্লিয়ার করে সিকিউর লগইন
 proot-distro login ubuntu -- bash -c "opencode auth login"
