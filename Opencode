@@ -20,47 +20,51 @@ print_banner() {
     echo -e "${NC}\n"
 }
 
-# ক্লিন স্পিনার ফাংশন
-run_task() {
-    local msg=$1
-    local cmd=$2
-    printf "  ${BLUE}[*] ${msg}..."
-    eval "$cmd" &> /dev/null
-    printf "\r  ${TICK} ${GREEN}${msg} Done!${NC}\n"
+# প্রতিটি কাজের জন্য ক্লিনার ফাংশন
+step() {
+    local task=$1
+    echo -e "${BLUE}  ➔ ${NC}${task}..."
+}
+
+done_step() {
+    # আগের লাইনটি মুছে দিয়ে টিক মার্ক বসানো
+    printf "\033[1A\033[K"
+    echo -e "  ${TICK} ${GREEN}Done:${NC} $1"
 }
 
 print_banner
 
-# ১. এনভায়রনমেন্ট
 echo -e "${YELLOW}Phase 1: Environment Preparation${NC}"
-run_task "Updating System" "pkg update -y && pkg upgrade -y"
-run_task "Installing Proot-Distro" "pkg install proot-distro -y"
+step "Updating System"
+pkg update -y &> /dev/null && pkg upgrade -y &> /dev/null
+done_step "Updating System"
+
+step "Installing Dependencies"
+pkg install proot-distro -y &> /dev/null
+done_step "Installing Dependencies"
 
 if proot-distro list | grep -q "ubuntu.*installed"; then
-    echo -e "  ${TICK} ${GREEN}Ubuntu already configured.${NC}\n"
+    echo -e "  ${TICK} Ubuntu is already ready."
 else
-    printf "  ${BLUE}[*] Installing Ubuntu (This takes time)...${NC}"
+    step "Installing Ubuntu (This may take a moment)"
     proot-distro install ubuntu &> /dev/null
-    printf "\r  ${TICK} ${GREEN}Ubuntu Installation Done!${NC}\n\n"
+    done_step "Installing Ubuntu"
 fi
 
+echo -e "\n${YELLOW}Phase 2: Core System Configuration${NC}"
+step "Preparing Internal RootFS"
 ln -sf $PREFIX/var/lib/proot-distro/containers/ubuntu/rootfs ~/ubuntu-fs
+done_step "Internal RootFS Linked"
 
-# ২. কনফিগারেশন
-echo -e "${YELLOW}Phase 2: Core System Configuration${NC}"
-printf "  ${BLUE}[*] Setting up dependencies (Please be patient)...${NC}"
-
+step "Setting up Bun & Opencode (Please be patient)"
 proot-distro login ubuntu -- bash -c "
   apt update -y &> /dev/null
   apt install curl bash -y &> /dev/null
   if [ ! -d \"\$HOME/.bun\" ]; then curl -fsSL https://bun.sh/install | bash &> /dev/null; fi
   curl -fsSL https://opencode.ai/install | bash &> /dev/null
-  mkdir -p ~/.config/opencode/
 " &> /dev/null
-printf "\r  ${TICK} ${GREEN}Core Configuration Done!${NC}\n\n"
+done_step "Bun & Opencode Configuration"
 
-# ৩. হ্যান্ডশেক
-echo -e "${YELLOW}Phase 3: Finalization${NC}"
-echo -e "${BLUE}[!] Please be patient. This may take a while as we finalize authentication...${NC}\n"
-
+echo -e "\n${YELLOW}Phase 3: Finalization${NC}"
+echo -e "${BLUE}[!] Please be patient. Finalizing authentication...${NC}"
 proot-distro login ubuntu -- bash -c "opencode auth login"
