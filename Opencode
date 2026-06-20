@@ -1,66 +1,66 @@
 #!/bin/bash
 
-# --- Colors ---
-GREEN='\033[1;32m'; YELLOW='\033[1;33m'; BLUE='\033[1;34m'; NC='\033[0m'
+# --- Colors & UI ---
+GREEN='\033[1;32m'; YELLOW='\033[1;33m'; BLUE='\033[1;34m'; CYAN='\033[1;36m'; BOLD='\033[1m'; NC='\033[0m'
+TICK="${GREEN}✔${NC}"
 
-# --- Simple Spinner Function ---
-spin() {
-    local pid=$1
-    local delay=0.1
-    local spinstr='|/-\'
-    while kill -0 "$pid" 2>/dev/null; do
-        local temp=${spinstr#?}
-        printf " [%c]  " "$spinstr"
-        spinstr=$temp${spinstr%"$temp"}
-        sleep $delay
-        printf "\b\b\b\b\b\b"
-    done
-    printf "    \b\b\b\b"
-}
-
-print_header() {
+print_banner() {
     clear
-    echo -e "${BLUE}=== Opencode Setup Assistant ===${NC}\n"
+    echo -e "${CYAN}${BOLD}"
+    echo "  ============================================="
+    echo "    ____                                  __   "
+    echo "   / __ \____  ___  ____  _________  ____/ /__ "
+    echo "  / / / / __ \/ _ \/ __ \/ ___/ __ \/ __  / _ \\"
+    echo " / /_/ / /_/ /  __/ / / / /__/ /_/ / /_/ /  __/"
+    echo " \____/ .___/\___/_/ /_/\___/\____/\__,_/\___/ "
+    echo "     /_/                                       "
+    echo "        Opencode & Antigravity Auto-Setup      "
+    echo "           Engineered by: Tnayem48             "
+    echo "  ============================================="
+    echo -e "${NC}\n"
 }
 
-print_header
+# ক্লিন স্পিনার ফাংশন
+run_task() {
+    local msg=$1
+    local cmd=$2
+    printf "  ${BLUE}[*] ${msg}..."
+    eval "$cmd" &> /dev/null
+    printf "\r  ${TICK} ${GREEN}${msg} Done!${NC}\n"
+}
 
-# ১. এনভায়রনমেন্ট সেটআপ
-echo -n "[*] Updating system..."
-(pkg update -y && pkg upgrade -y && pkg install proot-distro -y) > /dev/null 2>&1 &
-spin $!
-echo -e "${GREEN} Done!${NC}"
+print_banner
 
-# উবুন্টু চেক
+# ১. এনভায়রনমেন্ট
+echo -e "${YELLOW}Phase 1: Environment Preparation${NC}"
+run_task "Updating System" "pkg update -y && pkg upgrade -y"
+run_task "Installing Proot-Distro" "pkg install proot-distro -y"
+
 if proot-distro list | grep -q "ubuntu.*installed"; then
-    echo -e "${GREEN}✔ Ubuntu already installed.${NC}"
+    echo -e "  ${TICK} ${GREEN}Ubuntu already configured.${NC}\n"
 else
-    echo -n "[*] Installing Ubuntu (This may take a moment)..."
-    proot-distro install ubuntu > /dev/null 2>&1 &
-    spin $!
-    echo -e "${GREEN} Done!${NC}"
+    printf "  ${BLUE}[*] Installing Ubuntu (This takes time)...${NC}"
+    proot-distro install ubuntu &> /dev/null
+    printf "\r  ${TICK} ${GREEN}Ubuntu Installation Done!${NC}\n\n"
 fi
 
-# ২. কনফিগারেশন ও টুলস
-echo -n "[*] Configuring Core Ecosystem..."
-proot-distro login ubuntu -- bash -c "
-  apt update > /dev/null 2>&1
-  apt install curl bash -y > /dev/null 2>&1
-  
-  # Bun Setup
-  if [ ! -d \"\$HOME/.bun\" ]; then
-    curl -fsSL https://bun.sh/install | bash > /dev/null 2>&1
-  fi
-  
-  # Opencode Setup
-  curl -fsSL https://opencode.ai/install | bash > /dev/null 2>&1
-  chmod +x ~/.opencode/bin/opencode
-  cp ~/.opencode/bin/opencode /usr/bin/
-" > /dev/null 2>&1 &
-spin $!
-echo -e "${GREEN} Done!${NC}"
+ln -sf $PREFIX/var/lib/proot-distro/containers/ubuntu/rootfs ~/ubuntu-fs
 
-# ৩. ফাইনাল হ্যান্ডশেক
-echo -e "\n${YELLOW}➔ Launching Secure Authentication. Please be patient. This may take a while..${NC}"
-sleep 1
+# ২. কনফিগারেশন
+echo -e "${YELLOW}Phase 2: Core System Configuration${NC}"
+printf "  ${BLUE}[*] Setting up dependencies (Please be patient)...${NC}"
+
+proot-distro login ubuntu -- bash -c "
+  apt update -y &> /dev/null
+  apt install curl bash -y &> /dev/null
+  if [ ! -d \"\$HOME/.bun\" ]; then curl -fsSL https://bun.sh/install | bash &> /dev/null; fi
+  curl -fsSL https://opencode.ai/install | bash &> /dev/null
+  mkdir -p ~/.config/opencode/
+" &> /dev/null
+printf "\r  ${TICK} ${GREEN}Core Configuration Done!${NC}\n\n"
+
+# ৩. হ্যান্ডশেক
+echo -e "${YELLOW}Phase 3: Finalization${NC}"
+echo -e "${BLUE}[!] Please be patient. This may take a while as we finalize authentication...${NC}\n"
+
 proot-distro login ubuntu -- bash -c "opencode auth login"
